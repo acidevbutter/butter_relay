@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Projects - Butter Relay{% endblock %}
+{% block content %}
+<h1>Projects</h1>
+<div class="card">
+    <h3>New project</h3>
+    <form method="post" action="/admin/projects">
+        <label>Name</label>
+        <input type="text" name="name" required>
+        <label>Slug</label>
+        <input type="text" name="slug" required placeholder="crate-diggr">
+        <label>SQS queue URL</label>
+        <input type="text" name="sqs_queue_url" required placeholder="https://sqs.us-east-1.amazonaws.com/.../relay-shared">
+        <label>Default sender email</label>
+        <input type="email" name="default_sender_email" required>
+        <label>Default sender name</label>
+        <input type="text" name="default_sender_name" required>
+        <button type="submit">Create project</button>
+    </form>
+</div>
+<div class="card">
+    <table>
+        <thead>
+            <tr><th>Name</th><th>Slug</th><th>Sender</th><th>Active</th><th></th></tr>
+        </thead>
+        <tbody>
+        {% for p in projects %}
+            <tr>
+                <td>{{ p.name }}</td>
+                <td><code>{{ p.slug }}</code></td>
+                <td>{{ p.default_sender_email }}</td>
+                <td>{{ "yes" if p.is_active else "no" }}</td>
+                <td><a class="link" href="/admin/projects/{{ p.id }}">Manage &rarr;</a></td>
+            </tr>
+        {% else %}
+            <tr><td colspan="5" class="muted">No projects yet.</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

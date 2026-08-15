@@ -1,0 +1,309 @@
+"""Thin HTML controller layer: parses/validates via FastAPI + Pydantic forms,
+calls into each domain's own service, renders a Jinja2 template. No business
+logic lives here -- it's a view over projects/api_keys/templates_/messages.
+"""
+
+import json
+import uuid
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, Form, Request
+
+from app.admin.templating import templates
+from app.api_keys.repository import ApiKeyRepository
+from app.api_keys.service import ApiKeyService
+from app.auth.router import CurrentAdminUser
+from app.core.dependencies import DbSession
+from app.core.email_provider import BrevoEmailProvider, EmailSendError
+from app.messages.models import MessageStatus
+from app.messages.repository import MessageRepository
+from app.messages.service import MessageService
+from app.projects.repository import ProjectRepository
+from app.projects.schemas import ProjectCreate
+from app.projects.service import ProjectService
+from app.settings.config import settings
+from app.templates_.repository import TemplateRepository
+from app.templates_.schemas import TemplateCreate
+from app.templates_.service import TemplateService
+
+
+def get_project_service(db: DbSession) -> ProjectService:
+    return ProjectService(ProjectRepository(db))
+
+
+def get_api_key_service(db: DbSession) -> ApiKeyService:
+    return ApiKeyService(ApiKeyRepository(db))
+
+
+def get_template_service(db: DbSession) -> TemplateService:
+    return TemplateService(TemplateRepository(db))
+
+
+def get_message_service(db: DbSession) -> MessageService:
+    return MessageService(MessageRepository(db))
+
+
+ProjectServiceDep = Annotated[ProjectService, Depends(get_project_service)]
+ApiKeyServiceDep = Annotated[ApiKeyService, Depends(get_api_key_service)]
+TemplateServiceDep = Annotated[TemplateService, Depends(get_template_service)]
+MessageServiceDep = Annotated[MessageService, Depends(get_message_service)]
+
+router = APIRouter(prefix="/admin", tags=["admin"])
+
+
+@router.get("", summary="Admin dashboard home")
+async def dashboard(
+    request: Request, admin_user: CurrentAdminUser, message_service: MessageServiceDep
+):
+    recent_messages = await message_service.list(limit=10)
+    return templates.TemplateResponse(
+        request, "dashboard.html", {"admin_user": admin_user, "recent_messages": recent_messages}
+    )
+
+
+# --- Projects -------------------------------------------------------------
+
+@router.get("/projects", summary="List + create projects")
+async def list_projects(request: Request, admin_user: CurrentAdminUser, service: ProjectServiceDep):
+    projects = await service.list()
+    return templates.TemplateResponse(
+        request, "projects.html", {"admin_user": admin_user, "projects": projects, "error": None}
+    )
+
+
+@router.post("/projects", summary="Create a project")
+async def create_project(
+    request: Request,
+    admin_user: CurrentAdminUser,
+    service: ProjectServiceDep,
+    name: Annotated[str, Form()],
+    slug: Annotated[str, Form()],
+    sqs_queue_url: Annotated[str, Form()],
+    default_sender_email: Annotated[str, Form()],
+    default_sender_name: Annotated[str, Form()],
+):
+    await service.create(
+        ProjectCreate(
+            name=name,
+            slug=slug,
+            sqs_queue_url=sqs_queue_url,
+            default_sender_email=default_sender_email,
+            default_sender_name=default_sender_name,
+        )
+    )
+    projects = await service.list()
+    return templates.TemplateResponse(
+        request, "projects.html", {"admin_user": admin_user, "projects": projects, "error": None}
+    )
+
+
+@router.get("/projects/{project_id}", summary="Project detail: API keys + templates")
+async def project_detail(
+    request: Request,
+    admin_user: CurrentAdminUser,
+    project_id: uuid.UUID,
+    project_service: ProjectServiceDep,
+    api_key_service: ApiKeyServiceDep,
+    template_service: TemplateServiceDep,
+):
+    project = await project_service.get(project_id)
+    api_keys = await api_key_service.list_for_project(project_id)
+    project_templates = await template_service.list_for_project(project_id)
+    return templates.TemplateResponse(
+        request,
+        "project_detail.html",
+        {
+            "admin_user": admin_user,
+            "project": project,
+            "api_keys": api_keys,
+            "templates": project_templates,
+            "new_key_plaintext": None,
+        },
+    )
+
+
+@router.post("/projects/{project_id}/api-keys", summary="Generate an API key")
+async def create_api_key(
+    request: Request,
+    admin_user: CurrentAdminUser,
+    project_id: uuid.UUID,
+    label: Annotated[str, Form()],
+    project_service: ProjectServiceDep,
+    api_key_service: ApiKeyServiceDep,
+    template_service: TemplateServiceDep,
+):
+    api_key, plaintext_key = await api_key_service.create(project_id, label)
+    project = await project_service.get(project_id)
+    api_keys = await api_key_service.list_for_project(project_id)
+    project_templates = await template_service.list_for_project(project_id)
+    return templates.TemplateResponse(
+        request,
+        "project_detail.html",
+        {
+            "admin_user": admin_user,
+            "project": project,
+            "api_keys": api_keys,
+            "templates": project_templates,
+            "new_key_plaintext": plaintext_key,
+        },
+    )
+
+
+@router.post("/projects/{project_id}/api-keys/{api_key_id}/revoke", summary="Revoke an API key")
+async def revoke_api_key(
+    request: Request,
+    admin_user: CurrentAdminUser,
+    project_id: uuid.UUID,
+    api_key_id: uuid.UUID,
+    project_service: ProjectServiceDep,
+    api_key_service: ApiKeyServiceDep,
+    template_service: TemplateServiceDep,
+):
+    await api_key_service.revoke(api_key_id, project_id)
+    project = await project_service.get(project_id)
+    api_keys = await api_key_service.list_for_project(project_id)
+    project_templates = await template_service.list_for_project(project_id)
+    return templates.TemplateResponse(
+        request,
+        "project_detail.html",
+        {
+            "admin_user": admin_user,
+            "project": project,
+            "api_keys": api_keys,
+            "templates": project_templates,
+            "new_key_plaintext": None,
+        },
+    )
+
+
+# --- Templates --------------------------------------------------------------
+
+@router.post("/projects/{project_id}/templates", summary="Publish a new template version")
+async def publish_template(
+    request: Request,
+    admin_user: CurrentAdminUser,
+    project_id: uuid.UUID,
+    key: Annotated[str, Form()],
+    subject_template: Annotated[str, Form()],
+    html_template: Annotated[str, Form()],
+    project_service: ProjectServiceDep,
+    api_key_service: ApiKeyServiceDep,
+    template_service: TemplateServiceDep,
+):
+    await template_service.publish(
+        TemplateCreate(
+            project_id=project_id,
+            key=key,
+            subject_template=subject_template,
+            html_template=html_template,
+        )
+    )
+    project = await project_service.get(project_id)
+    api_keys = await api_key_service.list_for_project(project_id)
+    project_templates = await template_service.list_for_project(project_id)
+    return templates.TemplateResponse(
+        request,
+        "project_detail.html",
+        {
+            "admin_user": admin_user,
+            "project": project,
+            "api_keys": api_keys,
+            "templates": project_templates,
+            "new_key_plaintext": None,
+        },
+    )
+
+
+@router.post("/templates/{template_id}/preview", summary="Render a template preview (HTMX partial)")
+async def preview_template(
+    request: Request,
+    admin_user: CurrentAdminUser,
+    template_id: uuid.UUID,
+    sample_payload: Annotated[str, Form()],
+    service: TemplateServiceDep,
+):
+    template = await service.get(template_id)
+    try:
+        payload = json.loads(sample_payload) if sample_payload.strip() else {}
+    except json.JSONDecodeError as exc:
+        return templates.TemplateResponse(
+            request, "partials/_preview.html", {"error": f"Invalid JSON payload: {exc}"}
+        )
+    subject, html = service.render(template, payload)
+    return templates.TemplateResponse(
+        request, "partials/_preview.html", {"subject": subject, "html": html, "error": None}
+    )
+
+
+# --- Messages (the email log) ------------------------------------------------
+
+@router.get("/messages", summary="Message log with filters")
+async def list_messages(
+    request: Request,
+    admin_user: CurrentAdminUser,
+    message_service: MessageServiceDep,
+    project_service: ProjectServiceDep,
+    project_id: uuid.UUID | None = None,
+    status_filter: MessageStatus | None = None,
+):
+    messages = await message_service.list(project_id, status_filter, limit=200)
+    projects = await project_service.list()
+    return templates.TemplateResponse(
+        request,
+        "messages.html",
+        {
+            "admin_user": admin_user,
+            "messages": messages,
+            "projects": projects,
+            "project_id": project_id,
+            "status_filter": status_filter,
+        },
+    )
+
+
+@router.post("/messages/{message_id}/resend", summary="Manually resend a failed message")
+async def resend_message(
+    request: Request,
+    admin_user: CurrentAdminUser,
+    message_id: uuid.UUID,
+    message_service: MessageServiceDep,
+    project_service: ProjectServiceDep,
+    template_service: TemplateServiceDep,
+):
+    message = await message_service.get(message_id)
+    project = await project_service.get(message.project_id)
+
+    if message.template_id is not None:
+        template = await template_service.get(message.template_id)
+        subject, html = template_service.render(template, message.payload)
+    else:
+        subject, html = message.rendered_subject or "", ""
+
+    message = await message_service.mark_processing(message, subject)
+    provider = BrevoEmailProvider(api_key=settings.brevo_api_key)
+    try:
+        result = await provider.send(
+            to=message.to_email,
+            subject=subject,
+            html=html,
+            from_email=project.default_sender_email,
+            from_name=project.default_sender_name,
+        )
+    except EmailSendError as exc:
+        await message_service.mark_failed(message, exc.detail)
+    else:
+        await message_service.mark_sent(message, result.provider_message_id)
+
+    messages = await message_service.list(limit=200)
+    projects = await project_service.list()
+    return templates.TemplateResponse(
+        request,
+        "messages.html",
+        {
+            "admin_user": admin_user,
+            "messages": messages,
+            "projects": projects,
+            "project_id": None,
+            "status_filter": None,
+        },
+    )

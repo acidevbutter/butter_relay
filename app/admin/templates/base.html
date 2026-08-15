@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>{% block title %}Butter Relay{% endblock %}</title>
+    <script src="https://unpkg.com/htmx.org@2.0.3"></script>
+    <style>
+        :root {
+            --bg: #141628; --bg2: #1b1e32; --fg: #e4e1cd; --muted: #8b8fa3;
+            --green: #79e59b; --pink: #f64c6f; --teal: #28b1be; --border: #2a2d45;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0; background: var(--bg); color: var(--fg);
+            font-family: -apple-system, "Inter", "Geist", sans-serif; font-size: 14px;
+        }
+        header {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 14px 24px; border-bottom: 1px solid var(--border); background: var(--bg2);
+        }
+        header .brand { font-weight: 700; color: var(--green); }
+        nav a {
+            color: var(--fg); text-decoration: none; margin-right: 18px; opacity: 0.8;
+        }
+        nav a:hover { opacity: 1; color: var(--pink); }
+        main { padding: 24px; max-width: 1100px; margin: 0 auto; }
+        table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+        th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+        th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; }
+        .card {
+            background: var(--bg2); border: 1px solid var(--border); border-radius: 6px;
+            padding: 18px; margin-bottom: 18px;
+        }
+        input, textarea, select {
+            background: var(--bg); border: 1px solid var(--border); color: var(--fg);
+            padding: 8px; border-radius: 4px; width: 100%; margin-bottom: 10px; font-family: inherit;
+        }
+        label { font-size: 12px; color: var(--muted); display: block; margin-bottom: 4px; }
+        button {
+            background: var(--green); color: #141628; border: none; padding: 8px 14px;
+            border-radius: 4px; font-weight: 600; cursor: pointer;
+        }
+        button.secondary { background: transparent; border: 1px solid var(--border); color: var(--fg); }
+        button.danger { background: var(--pink); color: #141628; }
+        .badge { padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+        .badge.sent { background: rgba(121,229,155,0.15); color: var(--green); }
+        .badge.failed { background: rgba(246,76,111,0.15); color: var(--pink); }
+        .badge.processing, .badge.pending { background: rgba(40,177,190,0.15); color: var(--teal); }
+        .error { color: var(--pink); margin-bottom: 10px; }
+        .muted { color: var(--muted); }
+        a.link { color: var(--teal); }
+        code { background: var(--bg); padding: 2px 6px; border-radius: 4px; }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="brand">Butter Relay</div>
+        {% if admin_user %}
+        <nav>
+            <a href="/admin">Dashboard</a>
+            <a href="/admin/projects">Projects</a>
+            <a href="/admin/messages">Messages</a>
+            <span class="muted">{{ admin_user.email }}</span>
+            <form action="/admin/logout" method="post" style="display:inline">
+                <button class="secondary" type="submit">Log out</button>
+            </form>
+        </nav>
+        {% endif %}
+    </header>
+    <main>
+        {% block content %}{% endblock %}
+    </main>
+</body>
+</html>

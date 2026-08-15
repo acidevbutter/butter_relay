@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Dashboard - Butter Relay{% endblock %}
+{% block content %}
+<h1>Dashboard</h1>
+<div class="card">
+    <h3>Recent messages</h3>
+    <table>
+        <thead>
+            <tr><th>To</th><th>Subject</th><th>Status</th><th>Received</th></tr>
+        </thead>
+        <tbody>
+        {% for m in recent_messages %}
+            <tr>
+                <td>{{ m.to_email }}</td>
+                <td>{{ m.rendered_subject or "-" }}</td>
+                <td><span class="badge {{ m.status }}">{{ m.status }}</span></td>
+                <td class="muted">{{ m.received_at }}</td>
+            </tr>
+        {% else %}
+            <tr><td colspan="4" class="muted">No messages yet.</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    <p><a class="link" href="/admin/messages">View full log &rarr;</a></p>
+</div>
+<div class="card">
+    <p><a class="link" href="/admin/projects">Manage projects, API keys, and templates &rarr;</a></p>
+</div>
+{% endblock %}

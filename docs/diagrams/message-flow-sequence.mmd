@@ -1,0 +1,25 @@
+sequenceDiagram
+    participant App as Producer app
+    participant SQS as SQS queue
+    participant W as Relay worker
+    participant DB as Postgres
+    participant Brevo as Brevo API
+
+    App->>SQS: SendMessage(project_id, template_key, to, payload)
+    loop long-poll
+        W->>SQS: ReceiveMessage
+    end
+    SQS-->>W: message
+    W->>DB: load Project + ApiKey scope + Template
+    W->>W: render subject/html (Jinja2, sandboxed)
+    W->>DB: insert Message(status=processing)
+    W->>Brevo: send email
+    alt success
+        Brevo-->>W: 201 + provider_message_id
+        W->>DB: update Message(status=sent)
+        W->>SQS: DeleteMessage
+    else failure
+        Brevo-->>W: error
+        W->>DB: update Message(status=failed, attempts+=1, last_error)
+        Note over W,SQS: message left un-deleted;\nvisibility timeout expiry retries;\nafter maxReceiveCount -> DLQ (redrive policy)
+    end

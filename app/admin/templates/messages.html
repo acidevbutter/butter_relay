@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}Messages - Butter Relay{% endblock %}
+{% block content %}
+<h1>Messages</h1>
+<form method="get" action="/admin/messages" class="card" style="display:flex; gap:12px; align-items:flex-end;">
+    <div style="flex:1">
+        <label>Project</label>
+        <select name="project_id">
+            <option value="">All</option>
+            {% for p in projects %}
+            <option value="{{ p.id }}" {% if project_id and project_id == p.id %}selected{% endif %}>{{ p.name }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div style="flex:1">
+        <label>Status</label>
+        <select name="status_filter">
+            <option value="">All</option>
+            {% for s in ["pending", "processing", "sent", "failed"] %}
+            <option value="{{ s }}" {% if status_filter and status_filter == s %}selected{% endif %}>{{ s }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <button type="submit">Filter</button>
+</form>
+
+<div class="card" hx-get="/admin/messages" hx-trigger="every 10s" hx-select="#message-table" hx-target="#message-table" hx-swap="outerHTML">
+    <table id="message-table">
+        <thead>
+            <tr><th>To</th><th>Subject</th><th>Status</th><th>Attempts</th><th>Received</th><th></th></tr>
+        </thead>
+        <tbody>
+        {% for m in messages %}
+            <tr>
+                <td>{{ m.to_email }}</td>
+                <td>{{ m.rendered_subject or "-" }}</td>
+                <td><span class="badge {{ m.status }}">{{ m.status }}</span></td>
+                <td>{{ m.attempts }}</td>
+                <td class="muted">{{ m.received_at }}</td>
+                <td>
+                    {% if m.status == "failed" %}
+                    <form method="post" action="/admin/messages/{{ m.id }}/resend">
+                        <button class="secondary" type="submit">Resend</button>
+                    </form>
+                    {% endif %}
+                </td>
+            </tr>
+        {% else %}
+            <tr><td colspan="6" class="muted">No messages match this filter.</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

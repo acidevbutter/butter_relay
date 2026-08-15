@@ -1,0 +1,31 @@
+flowchart LR
+    subgraph Producers["DevButter apps (producers)"]
+        A1[Crate Diggr]
+        A2[Orbit]
+        A3[Client site / GranAI / etc.]
+    end
+
+    subgraph AWS["AWS"]
+        SQS[("SQS queue(s)\nshared queue,\nproject_id message attribute")]
+        subgraph ECS["ECS Fargate"]
+            API["butter_relay API\n(FastAPI: /admin dashboard,\n/api/v1 project+template+log endpoints)"]
+            Worker["butter_relay worker\n(SQS long-poll consumer,\nsame image, different CMD)"]
+        end
+        RDS[("RDS Postgres\nprojects, api_keys,\ntemplates, messages,\nadmin_users")]
+        SM["Secrets Manager\nDB creds, Brevo key,\nsession secret"]
+    end
+
+    Brevo[("Brevo\nemail API")]
+    Admin["DevButter admin\n(browser)"]
+
+    A1 -- "SendMessage (IAM)" --> SQS
+    A2 -- "SendMessage (IAM)" --> SQS
+    A3 -- "SendMessage (IAM)" --> SQS
+    SQS -- "long-poll ReceiveMessage" --> Worker
+    Worker -- "render template + send" --> Brevo
+    Worker -- "write Message row" --> RDS
+    Worker -- "DeleteMessage on success\n(else retry -> DLQ after N)" --> SQS
+    Admin -- "HTTPS (session cookie)" --> API
+    API -- "read/write" --> RDS
+    API -. reads secrets .-> SM
+    Worker -. reads secrets .-> SM

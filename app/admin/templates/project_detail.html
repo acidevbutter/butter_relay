@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block title %}{{ project.name }} - Butter Relay{% endblock %}
+{% block content %}
+<p><a class="link" href="/admin/projects">&larr; Projects</a></p>
+<h1>{{ project.name }} <span class="muted">({{ project.slug }})</span></h1>
+
+<div class="card">
+    <h3>API keys</h3>
+    {% if new_key_plaintext %}
+    <div class="error" style="color: var(--green)">
+        New key (shown once, copy it now): <code>{{ new_key_plaintext }}</code>
+    </div>
+    {% endif %}
+    <table>
+        <thead><tr><th>Label</th><th>Last used</th><th>Status</th><th></th></tr></thead>
+        <tbody>
+        {% for k in api_keys %}
+            <tr>
+                <td>{{ k.label }}</td>
+                <td class="muted">{{ k.last_used_at or "never" }}</td>
+                <td>{{ "revoked" if k.revoked_at else "active" }}</td>
+                <td>
+                    {% if not k.revoked_at %}
+                    <form method="post" action="/admin/projects/{{ project.id }}/api-keys/{{ k.id }}/revoke">
+                        <button class="danger" type="submit">Revoke</button>
+                    </form>
+                    {% endif %}
+                </td>
+            </tr>
+        {% else %}
+            <tr><td colspan="4" class="muted">No API keys yet.</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    <form method="post" action="/admin/projects/{{ project.id }}/api-keys" style="margin-top: 12px;">
+        <label>New key label</label>
+        <input type="text" name="label" required placeholder="crate-diggr-prod">
+        <button type="submit">Generate key</button>
+    </form>
+</div>
+
+<div class="card">
+    <h3>Templates</h3>
+    <table>
+        <thead><tr><th>Key</th><th>Version</th><th>Active</th><th>Subject</th></tr></thead>
+        <tbody>
+        {% for t in templates %}
+            <tr>
+                <td><code>{{ t.key }}</code></td>
+                <td>v{{ t.version }}</td>
+                <td>{{ "yes" if t.is_active else "no" }}</td>
+                <td>{{ t.subject_template }}</td>
+            </tr>
+        {% else %}
+            <tr><td colspan="4" class="muted">No templates yet.</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    <form method="post" action="/admin/projects/{{ project.id }}/templates" style="margin-top: 12px;">
+        <label>Template key</label>
+        <input type="text" name="key" required placeholder="welcome_email">
+        <label>Subject (Jinja2)</label>
+        <input type="text" name="subject_template" required placeholder="Welcome, {{ '{{' }} name {{ '}}' }}!">
+        <label>HTML body (Jinja2)</label>
+        <textarea name="html_template" rows="8" required placeholder="&lt;p&gt;Hi {{ '{{' }} name {{ '}}' }}&lt;/p&gt;"></textarea>
+        <button type="submit">Publish new version</button>
+    </form>
+</div>
+{% endblock %}
