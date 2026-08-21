@@ -47,6 +47,19 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    networks:
+      default:
+      devbutter_shared:
+        aliases:
+          - relay-api
+    develop:
+      watch:
+        - path: ./app
+          action: sync+restart
+          target: /app/app
+        - path: ./alembic
+          action: sync+restart
+          target: /app/alembic
 
   worker:
     build: .
@@ -63,6 +76,19 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    networks:
+      default:
+      devbutter_shared:
+    develop:
+      watch:
+        - path: ./app
+          action: sync+restart
+          target: /app/app
 
 volumes:
   relay_db_data:
+
+networks:
+  default:
+  devbutter_shared:
+    external: true

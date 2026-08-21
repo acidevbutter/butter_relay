@@ -15,6 +15,7 @@ from app.api_keys.service import ApiKeyService
 from app.auth.router import CurrentAdminUser
 from app.core.dependencies import DbSession
 from app.core.email_provider import BrevoEmailProvider, EmailSendError
+from app.core.exceptions import ValidationFailedError
 from app.messages.models import MessageStatus
 from app.messages.repository import MessageRepository
 from app.messages.service import MessageService
@@ -257,6 +258,35 @@ async def list_messages(
             "projects": projects,
             "project_id": project_id,
             "status_filter": status_filter,
+        },
+    )
+
+
+@router.get("/messages/{message_id}", summary="View a message's rendered email")
+async def message_detail(
+    request: Request,
+    admin_user: CurrentAdminUser,
+    message_id: uuid.UUID,
+    message_service: MessageServiceDep,
+    template_service: TemplateServiceDep,
+):
+    message = await message_service.get(message_id)
+    subject, html, render_error = message.rendered_subject or "", None, None
+    if message.template_id is not None:
+        template = await template_service.get(message.template_id)
+        try:
+            subject, html = template_service.render(template, message.payload)
+        except ValidationFailedError as exc:
+            render_error = str(exc)
+    return templates.TemplateResponse(
+        request,
+        "message_detail.html",
+        {
+            "admin_user": admin_user,
+            "message": message,
+            "subject": subject,
+            "html": html,
+            "render_error": render_error,
         },
     )
 

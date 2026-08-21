@@ -38,8 +38,9 @@
                 <td>{{ m.attempts }}</td>
                 <td class="muted">{{ m.received_at }}</td>
                 <td>
+                    <a class="link" href="/admin/messages/{{ m.id }}">View</a>
                     {% if m.status == "failed" %}
-                    <form method="post" action="/admin/messages/{{ m.id }}/resend">
+                    <form method="post" action="/admin/messages/{{ m.id }}/resend" style="display:inline">
                         <button class="secondary" type="submit">Resend</button>
                     </form>
                     {% endif %}

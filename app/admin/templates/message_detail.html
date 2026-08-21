@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Message - Butter Relay{% endblock %}
+{% block content %}
+<p><a class="link" href="/admin/messages">&larr; Messages</a></p>
+<h1>{{ message.to_email }} <span class="badge {{ message.status }}">{{ message.status }}</span></h1>
+
+<div class="card">
+    <table>
+        <tbody>
+            <tr><th>Status</th><td>{{ message.status }}</td></tr>
+            <tr><th>Attempts</th><td>{{ message.attempts }}</td></tr>
+            <tr><th>Received</th><td class="muted">{{ message.received_at }}</td></tr>
+            <tr><th>Sent</th><td class="muted">{{ message.sent_at or "-" }}</td></tr>
+            {% if message.last_error %}
+            <tr><th>Last error</th><td class="error">{{ message.last_error }}</td></tr>
+            {% endif %}
+        </tbody>
+    </table>
+    {% if message.status == "failed" %}
+    <form method="post" action="/admin/messages/{{ message.id }}/resend" style="margin-top: 12px;">
+        <button type="submit">Resend</button>
+    </form>
+    {% endif %}
+</div>
+
+<div class="card">
+    <h3>Rendered email</h3>
+    {% if render_error %}
+    <div class="error">{{ render_error }}</div>
+    {% else %}
+    <div><strong>Subject:</strong> {{ subject }}</div>
+    <iframe style="width:100%; height:500px; margin-top:8px; border:1px solid var(--border); background:#fff;"
+            srcdoc="{{ html | e }}"></iframe>
+    {% endif %}
+</div>
+
+<div class="card">
+    <h3>Payload</h3>
+    <pre style="white-space: pre-wrap; word-break: break-word;">{{ message.payload }}</pre>
+</div>
+{% endblock %}

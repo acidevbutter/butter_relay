@@ -6,7 +6,7 @@
     <h3>Recent messages</h3>
     <table>
         <thead>
-            <tr><th>To</th><th>Subject</th><th>Status</th><th>Received</th></tr>
+            <tr><th>To</th><th>Subject</th><th>Status</th><th>Received</th><th></th></tr>
         </thead>
         <tbody>
         {% for m in recent_messages %}
@@ -15,9 +15,10 @@
                 <td>{{ m.rendered_subject or "-" }}</td>
                 <td><span class="badge {{ m.status }}">{{ m.status }}</span></td>
                 <td class="muted">{{ m.received_at }}</td>
+                <td><a class="link" href="/admin/messages/{{ m.id }}">View</a></td>
             </tr>
         {% else %}
-            <tr><td colspan="4" class="muted">No messages yet.</td></tr>
+            <tr><td colspan="5" class="muted">No messages yet.</td></tr>
         {% endfor %}
         </tbody>
     </table>

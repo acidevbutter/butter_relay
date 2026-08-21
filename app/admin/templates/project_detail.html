@@ -42,7 +42,7 @@
 <div class="card">
     <h3>Templates</h3>
     <table>
-        <thead><tr><th>Key</th><th>Version</th><th>Active</th><th>Subject</th></tr></thead>
+        <thead><tr><th>Key</th><th>Version</th><th>Active</th><th>Subject</th><th></th></tr></thead>
         <tbody>
         {% for t in templates %}
             <tr>
@@ -50,9 +50,26 @@
                 <td>v{{ t.version }}</td>
                 <td>{{ "yes" if t.is_active else "no" }}</td>
                 <td>{{ t.subject_template }}</td>
+                <td>
+                    <button class="secondary" type="button"
+                            onclick="document.getElementById('preview-{{ t.id }}').classList.toggle('hidden')">
+                        Preview
+                    </button>
+                </td>
+            </tr>
+            <tr id="preview-{{ t.id }}" class="hidden">
+                <td colspan="5">
+                    <form hx-post="/admin/templates/{{ t.id }}/preview"
+                          hx-target="#preview-result-{{ t.id }}" hx-swap="innerHTML">
+                        <label>Sample payload (JSON)</label>
+                        <textarea name="sample_payload" rows="4">{}</textarea>
+                        <button type="submit">Render</button>
+                    </form>
+                    <div id="preview-result-{{ t.id }}"></div>
+                </td>
             </tr>
         {% else %}
-            <tr><td colspan="4" class="muted">No templates yet.</td></tr>
+            <tr><td colspan="5" class="muted">No templates yet.</td></tr>
         {% endfor %}
         </tbody>
     </table>
@@ -60,10 +77,48 @@
         <label>Template key</label>
         <input type="text" name="key" required placeholder="welcome_email">
         <label>Subject (Jinja2)</label>
-        <input type="text" name="subject_template" required placeholder="Welcome, {{ '{{' }} name {{ '}}' }}!">
+        <input type="text" id="subject_template" name="subject_template" required placeholder="Welcome, {{ '{{' }} name {{ '}}' }}!">
         <label>HTML body (Jinja2)</label>
-        <textarea name="html_template" rows="8" required placeholder="&lt;p&gt;Hi {{ '{{' }} name {{ '}}' }}&lt;/p&gt;"></textarea>
+        <textarea id="html_template" name="html_template" rows="8" required placeholder="&lt;p&gt;Hi {{ '{{' }} name {{ '}}' }}&lt;/p&gt;"></textarea>
+        <button type="button" class="secondary" onclick="applyDevbutterStarter()">Use DevButter starter</button>
         <button type="submit">Publish new version</button>
     </form>
 </div>
+
+{# Raw source for the DevButter-branded starter template, kept out of Jinja's
+   own {{ }} parsing so the {{ name }} placeholders below stay literal. #}
+<script type="text/plain" id="devbutter-email-starter-subject">{% raw %}Bem-vindo(a) à DevButter, {{ name }}!{% endraw %}</script>
+<script type="text/plain" id="devbutter-email-starter-html">{% raw %}<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#141628;padding:32px 16px;">
+  <tr>
+    <td align="center">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:480px;background-color:#1b1e32;border:1px solid #2a2d45;border-radius:6px;">
+        <tr>
+          <td style="padding:24px 28px;border-bottom:1px solid #2a2d45;font-family:-apple-system,Helvetica,Arial,sans-serif;">
+            <span style="font-weight:700;font-size:16px;color:#e4e1cd;">Dev<span style="color:#79e59b;">Butter</span></span>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:28px;font-family:-apple-system,Helvetica,Arial,sans-serif;">
+            <h1 style="margin:0 0 12px;font-size:20px;line-height:1.3;color:#e4e1cd;">Olá, {{ name }}</h1>
+            <p style="margin:0 0 20px;font-size:14px;line-height:1.6;color:#8b8fa3;">{{ message }}</p>
+            <a href="{{ cta_url }}" style="display:inline-block;background-color:#79e59b;color:#141628;font-weight:600;font-size:14px;padding:10px 20px;border-radius:4px;text-decoration:none;">{{ cta_label }}</a>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:16px 28px;border-top:1px solid #2a2d45;font-family:-apple-system,Helvetica,Arial,sans-serif;">
+            <p style="margin:0;font-size:12px;color:#8b8fa3;">Enviado pela <span style="color:#f64c6f;">DevButter</span> &middot; <a href="https://devbutter.co" style="color:#28b1be;text-decoration:none;">devbutter.co</a></p>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+</table>{% endraw %}</script>
+<script>
+function applyDevbutterStarter() {
+    document.getElementById("subject_template").value =
+        document.getElementById("devbutter-email-starter-subject").textContent.trim();
+    document.getElementById("html_template").value =
+        document.getElementById("devbutter-email-starter-html").textContent.trim();
+}
+</script>
 {% endblock %}
