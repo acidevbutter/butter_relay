@@ -181,7 +181,9 @@ Each domain package (`projects`, `api_keys`, `templates_`, `messages`, `auth`) f
 cp .env.example .env
 ```
 
-The defaults already point at the `db` and `elasticmq` service names used by `docker-compose.yml`, so no edits are required for local dev. Set `BREVO_API_KEY` if you want real sends instead of an expected `401`.
+The shared development PostgreSQL is started by `../infra/docker-compose.yml` as `shared-postgres`.
+The defaults already point at `shared-postgres` and `elasticmq`. Set `BREVO_API_KEY` if you want real
+sends instead of an expected `401`.
 
 ### 3. Bring up the stack
 
@@ -189,11 +191,11 @@ The defaults already point at the `db` and `elasticmq` service names used by `do
 docker compose --profile dev up -d --build
 ```
 
-This starts four containers:
+The shared development PostgreSQL is started from `../infra/docker-compose.yml`. This stack starts
+the ElasticMQ, API, and worker containers:
 
 | Service | Purpose | Local port |
 |---|---|---|
-| `db` | Postgres 16 | `5433` (host) → `5432` |
 | `elasticmq` | SQS-compatible queue for local dev | `9324` |
 | `api` | FastAPI app (dashboard + JSON API), auto-reload | `8010` → `8000` |
 | `worker` | SQS long-poll consumer | — |
@@ -211,8 +213,8 @@ curl -s http://localhost:8010/health
 docker compose exec api alembic upgrade head
 ```
 
-(Or from the host, if you have Poetry installed and Postgres reachable on `localhost:5433`:
-`DATABASE_URL="postgresql+asyncpg://relay:relay@localhost:5433/relay" poetry run alembic upgrade head`)
+(Or from the host, if you have Poetry installed and Postgres reachable on `localhost:5436`:
+`DATABASE_URL="postgresql+asyncpg://relay:relay@localhost:5436/relay" poetry run alembic upgrade head`)
 
 ### 5. Create the first admin user
 
@@ -296,7 +298,7 @@ Exercises the real HTTP surface end-to-end: health check, admin login/session, p
 |---|---|---|
 | `DEBUG` | `false` | Relaxes cookie `Secure` flag when true |
 | `LOG_LEVEL` | `INFO` | |
-| `DATABASE_URL` | `postgresql+asyncpg://relay:relay@db:5432/relay` | |
+| `DATABASE_URL` | `postgresql+asyncpg://relay:relay@shared-postgres:5432/relay` | |
 | `AWS_REGION` | `us-east-1` | |
 | `SQS_QUEUE_URL` | — | Full queue URL the worker polls |
 | `SQS_ENDPOINT_URL` | — | Set for ElasticMQ locally; **unset on AWS** so `boto3` talks to real SQS |

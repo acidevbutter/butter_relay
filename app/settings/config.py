@@ -7,7 +7,7 @@ class Settings(BaseSettings):
     debug: bool = False
     log_level: str = "INFO"
 
-    database_url: str = "postgresql+asyncpg://relay:relay@db:5432/relay"
+    database_url: str = "postgresql+asyncpg://relay:relay@shared-postgres:5432/relay"
 
     aws_region: str = "us-east-1"
     sqs_queue_url: str = ""
