@@ -10,6 +10,11 @@ DevButter's company-wide, multi-tenant transactional email service. Apps publish
 
 ## Architecture
 
+The current-state flow and security review is documented in
+[`docs/butter-relay-fluxos.md`](docs/butter-relay-fluxos.md), with standalone Mermaid sources in
+[`docs/diagrams/`](docs/diagrams/). The deployment shape below is descriptive; it is not proof
+that AWS IAM, DLQ, Secrets Manager or provider configuration exists in the current environment.
+
 ```mermaid
 flowchart LR
     subgraph Producers["DevButter apps (producers)"]
@@ -19,9 +24,9 @@ flowchart LR
     end
 
     subgraph AWS["AWS"]
-        SQS[("SQS queue(s)\nshared queue,\nproject_id message attribute")]
+        SQS[("SQS queue(s)\nshared queue,\nproject_id attribute")]
         subgraph ECS["ECS Fargate"]
-            API["butter_relay API\n(FastAPI: /admin dashboard,\n/api/v1 project+template+log endpoints)"]
+            API["butter_relay API\n(FastAPI: /admin dashboard,\n/api/v1 endpoints; auth guard not wired)"]
             Worker["butter_relay worker\n(SQS long-poll consumer,\nsame image, different CMD)"]
         end
         RDS[("RDS Postgres\nprojects, api_keys,\ntemplates, messages,\nadmin_users")]
@@ -54,14 +59,13 @@ sequenceDiagram
     participant DB as Postgres
     participant Brevo as Brevo API
 
-    App->>SQS: SendMessage(project_id, template_key, to, payload)
-    loop long-poll
-        W->>SQS: ReceiveMessage
-    end
-    SQS-->>W: message
-    W->>DB: load Project + ApiKey scope + Template
-    W->>W: render subject/html (Jinja2, sandboxed)
-    W->>DB: insert Message(status=processing)
+    App->>SQS: SendMessage(project_id attribute, template_key, to, payload)
+    W->>SQS: ReceiveMessage (long poll)
+    SQS-->>W: message + ReceiptHandle
+    W->>DB: load Project + active Template
+    W->>DB: insert Message(status=pending)
+    W->>W: validate schema and render subject/html
+    W->>DB: update Message(status=processing, attempts += 1)
     W->>Brevo: send email
     alt success
         Brevo-->>W: 201 + provider_message_id
@@ -69,8 +73,8 @@ sequenceDiagram
         W->>SQS: DeleteMessage
     else failure
         Brevo-->>W: error
-        W->>DB: update Message(status=failed, attempts+=1, last_error)
-        Note over W,SQS: message left un-deleted;<br/>visibility timeout expiry retries;<br/>after maxReceiveCount -> DLQ (redrive policy)
+        W->>DB: update Message(status=failed, last_error)
+        Note over W,SQS: retry creates another Message row;<br/>DLQ requires external redrive policy
     end
 ```
 
@@ -271,7 +275,7 @@ Watch the worker pick it up:
 docker compose logs -f worker
 ```
 
-The message shows up in **/admin/messages** as `sent` (with a real `BREVO_API_KEY`) or `failed` (401, if unset) — either way it proves the full SQS → render → send → log pipeline.
+When the stack and dependencies are actually running, the message should appear in **/admin/messages** as `sent` (with a real `BREVO_API_KEY`) or `failed` (401, if unset). This exercises the local SQS → render → send → log path; it does not prove production readiness or exactly-once delivery.
 
 ### 8. Run the automated tests
 

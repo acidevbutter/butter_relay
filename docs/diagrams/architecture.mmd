@@ -1,31 +1,33 @@
 flowchart LR
-    subgraph Producers["DevButter apps (producers)"]
-        A1[Crate Diggr]
-        A2[Orbit]
-        A3[Client site / GranAI / etc.]
+    subgraph Producers["Produtores"]
+        P1["Aplicação DevButter"]
+        P2["Outro produtor com IAM"]
     end
 
-    subgraph AWS["AWS"]
-        SQS[("SQS queue(s)\nshared queue,\nproject_id message attribute")]
-        subgraph ECS["ECS Fargate"]
-            API["butter_relay API\n(FastAPI: /admin dashboard,\n/api/v1 project+template+log endpoints)"]
-            Worker["butter_relay worker\n(SQS long-poll consumer,\nsame image, different CMD)"]
-        end
-        RDS[("RDS Postgres\nprojects, api_keys,\ntemplates, messages,\nadmin_users")]
-        SM["Secrets Manager\nDB creds, Brevo key,\nsession secret"]
+    subgraph Relay["Butter Relay"]
+        API["API FastAPI\n/admin + /api/v1\nJSON sem guarda atual"]
+        W["Worker\npython -m app.worker"]
+        DB[("Postgres\nprojects / api_keys / templates / messages")]
     end
 
-    Brevo[("Brevo\nemail API")]
-    Admin["DevButter admin\n(browser)"]
+    Q[("SQS\nSQS_QUEUE_URL única\nproject_id no atributo")]
+    Brevo[("Brevo\nHTTPS API")]
+    Browser["Administrador\ncookie de sessão"]
+    Secrets["Segredos externos\nprevistos na documentação\nnão configurados neste repo"]
+    DLQ[("DLQ\nprevista em AWS\nsem configuração no checkout")]
 
-    A1 -- "SendMessage (IAM)" --> SQS
-    A2 -- "SendMessage (IAM)" --> SQS
-    A3 -- "SendMessage (IAM)" --> SQS
-    SQS -- "long-poll ReceiveMessage" --> Worker
-    Worker -- "render template + send" --> Brevo
-    Worker -- "write Message row" --> RDS
-    Worker -- "DeleteMessage on success\n(else retry -> DLQ after N)" --> SQS
-    Admin -- "HTTPS (session cookie)" --> API
-    API -- "read/write" --> RDS
-    API -. reads secrets .-> SM
-    Worker -. reads secrets .-> SM
+    P1 -- "SendMessage; project_id não autenticado" --> Q
+    P2 -- "mesma permissão pode forjar project_id" --> Q
+    Q -- "ReceiveMessage" --> W
+    W -- "carrega projeto/template\ncria/atualiza Message" --> DB
+    W -- "envia remetente + destinatário + HTML" --> Brevo
+    W -- "DeleteMessage só após sucesso" --> Q
+    Q -. "redrive após falhas\nse configurado" .-> DLQ
+    Browser -- "HTTPS + sessão assinada" --> API
+    API -- "CRUD/listagem sem auth JSON" --> DB
+    API -- "resend síncrono" --> Brevo
+    API -. "configuração prevista" .-> Secrets
+    W -. "configuração prevista" .-> Secrets
+
+    classDef risk fill:#5b1f2a,stroke:#f64c6f,color:#fff;
+    class API,Q,DLQ risk;

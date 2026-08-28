@@ -5,21 +5,27 @@ sequenceDiagram
     participant DB as Postgres
     participant Brevo as Brevo API
 
-    App->>SQS: SendMessage(project_id, template_key, to, payload)
-    loop long-poll
-        W->>SQS: ReceiveMessage
-    end
-    SQS-->>W: message
-    W->>DB: load Project + ApiKey scope + Template
-    W->>W: render subject/html (Jinja2, sandboxed)
-    W->>DB: insert Message(status=processing)
+    App->>SQS: SendMessage(project_id attribute, template_key, to, payload)
+    W->>SQS: ReceiveMessage (long poll, one configured queue)
+    SQS-->>W: message + ReceiptHandle
+    W->>W: parse JSON and project_id attribute
+    W->>DB: load Project + active Template
+    W->>DB: insert Message(status=pending)
+    W->>W: validate schema and render subject/html
+    W->>DB: update Message(status=processing, attempts += 1)
     W->>Brevo: send email
     alt success
         Brevo-->>W: 201 + provider_message_id
         W->>DB: update Message(status=sent)
         W->>SQS: DeleteMessage
+        Note over W,SQS: Crash before DeleteMessage causes redelivery and duplicate send.
     else failure
         Brevo-->>W: error
-        W->>DB: update Message(status=failed, attempts+=1, last_error)
-        Note over W,SQS: message left un-deleted;\nvisibility timeout expiry retries;\nafter maxReceiveCount -> DLQ (redrive policy)
+        W->>DB: update Message(status=failed, last_error)
+        Note over W,SQS: Message remains; retry creates another Message row.\nDLQ only exists if external redrive policy is configured.
+    end
+
+    alt malformed or render/database error
+        W-->>W: exception outside handled classes may stop worker
+        Note over W,SQS: malformed input is not recorded before parse;\nrender failure can leave pending row.
     end
