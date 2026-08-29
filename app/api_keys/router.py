@@ -3,10 +3,12 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, status
 
+from app.api_keys.models import ApiKey
 from app.api_keys.repository import ApiKeyRepository
 from app.api_keys.schemas import ApiKeyCreate, ApiKeyCreated, ApiKeyRead
 from app.api_keys.service import ApiKeyService
-from app.core.dependencies import DbSession
+from app.core.dependencies import CurrentApiKey, DbSession
+from app.core.exceptions import ForbiddenError
 
 
 def get_api_key_service(db: DbSession) -> ApiKeyService:
@@ -18,8 +20,19 @@ ApiKeyServiceDep = Annotated[ApiKeyService, Depends(get_api_key_service)]
 router = APIRouter(prefix="/api/v1/api-keys", tags=["api-keys"])
 
 
+def _require_same_project(current_api_key: ApiKey, project_id: uuid.UUID) -> None:
+    """An API key may only manage keys belonging to its own project.
+    See docs/auditoria-seguranca-2026-08-29.md (item 1) / docs/prompts/autenticar-api-v1.md.
+    """
+    if current_api_key.project_id != project_id:
+        raise ForbiddenError("API key does not belong to this project")
+
+
 @router.get("/", response_model=list[ApiKeyRead], summary="List API keys for a project")
-async def list_api_keys(project_id: uuid.UUID, service: ApiKeyServiceDep) -> list[ApiKeyRead]:
+async def list_api_keys(
+    project_id: uuid.UUID, current_api_key: CurrentApiKey, service: ApiKeyServiceDep
+) -> list[ApiKeyRead]:
+    _require_same_project(current_api_key, project_id)
     return await service.list_for_project(project_id)
 
 
@@ -29,13 +42,20 @@ async def list_api_keys(project_id: uuid.UUID, service: ApiKeyServiceDep) -> lis
     status_code=status.HTTP_201_CREATED,
     summary="Create an API key",
 )
-async def create_api_key(payload: ApiKeyCreate, service: ApiKeyServiceDep) -> ApiKeyCreated:
+async def create_api_key(
+    payload: ApiKeyCreate, current_api_key: CurrentApiKey, service: ApiKeyServiceDep
+) -> ApiKeyCreated:
+    _require_same_project(current_api_key, payload.project_id)
     api_key, plaintext_key = await service.create(payload.project_id, payload.label)
     return ApiKeyCreated(id=api_key.id, label=api_key.label, plaintext_key=plaintext_key)
 
 
 @router.post("/{api_key_id}/revoke", response_model=ApiKeyRead, summary="Revoke an API key")
 async def revoke_api_key(
-    api_key_id: uuid.UUID, project_id: uuid.UUID, service: ApiKeyServiceDep
+    api_key_id: uuid.UUID,
+    project_id: uuid.UUID,
+    current_api_key: CurrentApiKey,
+    service: ApiKeyServiceDep,
 ) -> ApiKeyRead:
+    _require_same_project(current_api_key, project_id)
     return await service.revoke(api_key_id, project_id)

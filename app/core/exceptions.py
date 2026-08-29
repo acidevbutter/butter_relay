@@ -37,6 +37,15 @@ class UnauthorizedError(Exception):
         self.detail = detail
 
 
+class ForbiddenError(Exception):
+    """Raised when the caller is authenticated but not allowed to act on the
+    requested resource -- e.g. an API key from one project trying to read or
+    manage another project's data. See docs/auditoria-seguranca-2026-08-29.md.
+    """
+    def __init__(self, detail: str = "Forbidden"):
+        self.detail = detail
+
+
 class ValidationFailedError(Exception):
     def __init__(self, detail: str = "Validation failed"):
         self.detail = detail
@@ -64,6 +73,11 @@ async def handle_conflict(request: Request, exc: ConflictError) -> JSONResponse:
 @exception_handler(UnauthorizedError)
 async def handle_unauthorized(request: Request, exc: UnauthorizedError) -> JSONResponse:
     return JSONResponse(status_code=status.HTTP_401_UNAUTHORIZED, content={"detail": exc.detail})
+
+
+@exception_handler(ForbiddenError)
+async def handle_forbidden(request: Request, exc: ForbiddenError) -> JSONResponse:
+    return JSONResponse(status_code=status.HTTP_403_FORBIDDEN, content={"detail": exc.detail})
 
 
 @exception_handler(ValidationFailedError)
