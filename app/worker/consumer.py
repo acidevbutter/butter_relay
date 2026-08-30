@@ -85,6 +85,12 @@ async def process_sqs_message(sqs_message: dict, email_provider: BrevoEmailProvi
         subject, html = template_service.render(template, payload)
         message = await message_service.mark_processing(message, subject)
 
+        if not settings.is_recipient_allowed(to_email):
+            detail = "recipient blocked by non-production delivery policy"
+            logger.warning("%s: %s", detail, to_email)
+            await message_service.mark_failed(message, detail)
+            return
+
         try:
             result = await email_provider.send(
                 to=to_email,

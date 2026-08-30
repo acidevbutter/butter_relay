@@ -2,6 +2,10 @@
 
 Registro retroativo baseado em todos os commits da branch `master`.
 
+## Unreleased
+
+- Adicionada restrição de destinatários para Relay em staging e pré-produção.
+
 ## [0.1.0] — 2026-08-21
 
 ### Adicionado

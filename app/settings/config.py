@@ -1,9 +1,12 @@
+from typing import Literal
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
+    environment: Literal["development", "staging", "preprod", "production"] = "development"
     debug: bool = False
     log_level: str = "INFO"
 
@@ -19,9 +22,20 @@ class Settings(BaseSettings):
     sqs_visibility_timeout: int = 60
 
     brevo_api_key: str = ""
+    allowed_recipient_domains: str = ""
 
     session_secret: str = "dev-only-insecure-secret-change-me"
     session_cookie_name: str = "butter_relay_session"
+
+    def is_recipient_allowed(self, email: str) -> bool:
+        if self.environment in {"development", "production"}:
+            return True
+        allowed_domains = {
+            domain.strip().lower()
+            for domain in self.allowed_recipient_domains.split(",")
+            if domain.strip()
+        }
+        return bool(allowed_domains) and email.rpartition("@")[2].lower() in allowed_domains
 
 
 settings = Settings()
