@@ -1,26 +1,17 @@
 import uuid
-from typing import Annotated
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, status
 
+from app.api_keys.dependencies import CurrentApiKey
 from app.api_keys.models import ApiKey
-from app.core.dependencies import CurrentApiKey, DbSession
 from app.core.exceptions import ForbiddenError
-from app.templates_.repository import TemplateRepository
+from app.templates_.dependencies import TemplateServiceDep
 from app.templates_.schemas import (
     TemplateCreate,
     TemplatePreviewRequest,
     TemplatePreviewResponse,
     TemplateRead,
 )
-from app.templates_.service import TemplateService
-
-
-def get_template_service(db: DbSession) -> TemplateService:
-    return TemplateService(TemplateRepository(db))
-
-
-TemplateServiceDep = Annotated[TemplateService, Depends(get_template_service)]
 
 router = APIRouter(prefix="/api/v1/templates", tags=["templates"])
 

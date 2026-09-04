@@ -12,8 +12,9 @@ import asyncio
 import json
 import logging
 import uuid
+from typing import Any
 
-import boto3
+import boto3  # type: ignore[import-untyped]
 
 from app.api_keys.repository import (
     ApiKeyRepository,  # noqa: F401  (SQS auth is IAM, not API key -- see plan)
@@ -21,6 +22,7 @@ from app.api_keys.repository import (
 from app.core.decorators import log_call
 from app.core.email_provider import BrevoEmailProvider, EmailSendError
 from app.core.exceptions import NotFoundError
+from app.core.metrics import emit_metrics
 from app.db.session import session_factory
 from app.messages.models import Message
 from app.messages.repository import MessageRepository
@@ -35,7 +37,7 @@ from app.templates_.service import TemplateService
 logger = logging.getLogger(__name__)
 
 
-def build_sqs_client():
+def build_sqs_client() -> Any:
     return boto3.client(
         "sqs",
         region_name=settings.aws_region,
@@ -48,7 +50,7 @@ class MalformedMessageError(Exception):
         self.detail = detail
 
 
-def _parse_sqs_message(sqs_message: dict) -> tuple[uuid.UUID, str, str, dict]:
+def _parse_sqs_message(sqs_message: dict[str, Any]) -> tuple[uuid.UUID, str, str, dict[str, Any]]:
     try:
         body = json.loads(sqs_message["Body"])
         project_id = uuid.UUID(sqs_message["MessageAttributes"]["project_id"]["StringValue"])
@@ -60,38 +62,47 @@ def _parse_sqs_message(sqs_message: dict) -> tuple[uuid.UUID, str, str, dict]:
     return project_id, template_key, to_email, payload
 
 
-@log_call
-async def process_sqs_message(sqs_message: dict, email_provider: BrevoEmailProvider) -> None:
+@log_call  # type: ignore[untyped-decorator]
+async def process_sqs_message(
+    sqs_message: dict[str, Any], email_provider: BrevoEmailProvider
+) -> None:
     async with session_factory() as session:
         project_service = ProjectService(ProjectRepository(session))
         template_service = TemplateService(TemplateRepository(session))
         message_service = MessageService(MessageRepository(session))
 
-        project_id, template_key, to_email, payload = _parse_sqs_message(sqs_message)
-
-        project = await project_service.get(project_id)
-        template = await template_service.get_active(project_id, template_key)
-
-        message: Message = await message_service.create(
-            MessageCreate(
-                project_id=project_id,
-                template_id=template.id,
-                to_email=to_email,
-                payload=payload,
-                sqs_message_id=sqs_message.get("MessageId"),
-            )
-        )
-
-        subject, html = template_service.render(template, payload)
-        message = await message_service.mark_processing(message, subject)
-
-        if not settings.is_recipient_allowed(to_email):
-            detail = "recipient blocked by non-production delivery policy"
-            logger.warning("%s: %s", detail, to_email)
-            await message_service.mark_failed(message, detail)
-            return
-
         try:
+            project_id, template_key, to_email, payload = _parse_sqs_message(sqs_message)
+        except MalformedMessageError:
+            await emit_metrics([("MessagesMalformed", 1, "Count")], {"TemplateKey": "unknown"})
+            raise
+
+        dimensions = {"TemplateKey": template_key}
+        await emit_metrics([("MessagesProcessed", 1, "Count")], dimensions)
+        try:
+            project = await project_service.get(project_id)
+            template = await template_service.get_active(project_id, template_key)
+
+            message: Message = await message_service.create(
+                MessageCreate(
+                    project_id=project_id,
+                    template_id=template.id,
+                    to_email=to_email,
+                    payload=payload,
+                    sqs_message_id=sqs_message.get("MessageId"),
+                )
+            )
+
+            subject, html = template_service.render(template, payload)
+            message = await message_service.mark_processing(message, subject)
+
+            if not settings.is_recipient_allowed(to_email):
+                detail = "recipient blocked by non-production delivery policy"
+                logger.warning("%s: %s", detail, to_email)
+                await message_service.mark_failed(message, detail)
+                await emit_metrics([("MessagesFailed", 1, "Count")], dimensions)
+                return
+
             result = await email_provider.send(
                 to=to_email,
                 subject=subject,
@@ -99,11 +110,15 @@ async def process_sqs_message(sqs_message: dict, email_provider: BrevoEmailProvi
                 from_email=project.default_sender_email,
                 from_name=project.default_sender_name,
             )
+            await message_service.mark_sent(message, result.provider_message_id)
+            await emit_metrics([("MessagesSent", 1, "Count")], dimensions)
         except EmailSendError as exc:
             await message_service.mark_failed(message, exc.detail)
+            await emit_metrics([("MessagesFailed", 1, "Count")], dimensions)
             raise
-        else:
-            await message_service.mark_sent(message, result.provider_message_id)
+        except Exception:
+            await emit_metrics([("MessagesFailed", 1, "Count")], dimensions)
+            raise
 
 
 async def run_forever() -> None:

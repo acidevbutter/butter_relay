@@ -24,6 +24,7 @@ bcrypt = "^4.2.0"
 itsdangerous = "^2.2.0"
 jsonschema = "^4.23.0"
 python-multipart = "^0.0.12"
+aws-embedded-metrics = "^3.5.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.3.0"

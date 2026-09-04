@@ -1,21 +1,12 @@
 import uuid
-from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter
 
-from app.core.dependencies import CurrentApiKey, DbSession
+from app.api_keys.dependencies import CurrentApiKey
 from app.core.exceptions import ForbiddenError
+from app.messages.dependencies import MessageServiceDep
 from app.messages.models import MessageStatus
-from app.messages.repository import MessageRepository
 from app.messages.schemas import MessageRead
-from app.messages.service import MessageService
-
-
-def get_message_service(db: DbSession) -> MessageService:
-    return MessageService(MessageRepository(db))
-
-
-MessageServiceDep = Annotated[MessageService, Depends(get_message_service)]
 
 router = APIRouter(prefix="/api/v1/messages", tags=["messages"])
 

@@ -7,47 +7,20 @@ import json
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Form, Request
+from fastapi import APIRouter, Form, Request
 
 from app.admin.templating import templates
-from app.api_keys.repository import ApiKeyRepository
-from app.api_keys.service import ApiKeyService
-from app.auth.router import CurrentAdminUser
-from app.core.dependencies import DbSession
+from app.api_keys.dependencies import ApiKeyServiceDep
+from app.auth.dependencies import CurrentAdminUser
 from app.core.email_provider import BrevoEmailProvider, EmailSendError
 from app.core.exceptions import ValidationFailedError
+from app.messages.dependencies import MessageServiceDep
 from app.messages.models import MessageStatus
-from app.messages.repository import MessageRepository
-from app.messages.service import MessageService
-from app.projects.repository import ProjectRepository
+from app.projects.dependencies import ProjectServiceDep
 from app.projects.schemas import ProjectCreate
-from app.projects.service import ProjectService
 from app.settings.config import settings
-from app.templates_.repository import TemplateRepository
+from app.templates_.dependencies import TemplateServiceDep
 from app.templates_.schemas import TemplateCreate
-from app.templates_.service import TemplateService
-
-
-def get_project_service(db: DbSession) -> ProjectService:
-    return ProjectService(ProjectRepository(db))
-
-
-def get_api_key_service(db: DbSession) -> ApiKeyService:
-    return ApiKeyService(ApiKeyRepository(db))
-
-
-def get_template_service(db: DbSession) -> TemplateService:
-    return TemplateService(TemplateRepository(db))
-
-
-def get_message_service(db: DbSession) -> MessageService:
-    return MessageService(MessageRepository(db))
-
-
-ProjectServiceDep = Annotated[ProjectService, Depends(get_project_service)]
-ApiKeyServiceDep = Annotated[ApiKeyService, Depends(get_api_key_service)]
-TemplateServiceDep = Annotated[TemplateService, Depends(get_template_service)]
-MessageServiceDep = Annotated[MessageService, Depends(get_message_service)]
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -63,6 +36,7 @@ async def dashboard(
 
 
 # --- Projects -------------------------------------------------------------
+
 
 @router.get("/projects", summary="List + create projects")
 async def list_projects(request: Request, admin_user: CurrentAdminUser, service: ProjectServiceDep):
@@ -179,6 +153,7 @@ async def revoke_api_key(
 
 # --- Templates --------------------------------------------------------------
 
+
 @router.post("/projects/{project_id}/templates", summary="Publish a new template version")
 async def publish_template(
     request: Request,
@@ -237,6 +212,7 @@ async def preview_template(
 
 
 # --- Messages (the email log) ------------------------------------------------
+
 
 @router.get("/messages", summary="Message log with filters")
 async def list_messages(

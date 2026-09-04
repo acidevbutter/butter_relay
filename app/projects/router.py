@@ -1,20 +1,10 @@
 import uuid
-from typing import Annotated
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, status
 
-from app.auth.router import CurrentAdminUserApi
-from app.core.dependencies import DbSession
-from app.projects.repository import ProjectRepository
+from app.auth.dependencies import CurrentAdminUserApi
+from app.projects.dependencies import ProjectServiceDep
 from app.projects.schemas import ProjectCreate, ProjectRead, ProjectUpdate
-from app.projects.service import ProjectService
-
-
-def get_project_service(db: DbSession) -> ProjectService:
-    return ProjectService(ProjectRepository(db))
-
-
-ProjectServiceDep = Annotated[ProjectService, Depends(get_project_service)]
 
 router = APIRouter(prefix="/api/v1/projects", tags=["projects"])
 

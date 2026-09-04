@@ -1,8 +1,10 @@
 import json
 import uuid
+from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.email_provider import ProviderResult
 from app.messages.models import MessageStatus
@@ -14,7 +16,7 @@ from app.templates_.schemas import TemplateCreate
 from app.worker.consumer import MalformedMessageError, process_sqs_message
 
 
-def _sqs_message(project_id: uuid.UUID, body: dict) -> dict:
+def _sqs_message(project_id: uuid.UUID, body: dict[str, Any]) -> dict[str, Any]:
     return {
         "MessageId": "sqs-123",
         "Body": json.dumps(body),
@@ -24,23 +26,23 @@ def _sqs_message(project_id: uuid.UUID, body: dict) -> dict:
 
 
 @pytest.fixture(autouse=True)
-def patch_session_factory(monkeypatch, db_session):
+def patch_session_factory(monkeypatch: pytest.MonkeyPatch, db_session: AsyncSession) -> None:
     """The worker opens its own session via session_factory(); route it at the
     same in-memory sqlite session the test fixtures use.
     """
     import app.worker.consumer as consumer_module
 
     class _SessionCtx:
-        async def __aenter__(self):
+        async def __aenter__(self) -> AsyncSession:
             return db_session
 
-        async def __aexit__(self, *exc):
+        async def __aexit__(self, *exc: object) -> bool:
             return False
 
     monkeypatch.setattr(consumer_module, "session_factory", lambda: _SessionCtx())
 
 
-async def _seed_project_and_template(db_session) -> uuid.UUID:
+async def _seed_project_and_template(db_session: AsyncSession) -> uuid.UUID:
     project = await ProjectRepository(db_session).create(
         ProjectCreate(
             name="Crate Diggr",
@@ -63,7 +65,11 @@ async def _seed_project_and_template(db_session) -> uuid.UUID:
     return project.id
 
 
-async def test_process_sqs_message_success_marks_message_sent(db_session):
+async def test_process_sqs_message_success_marks_message_sent(
+    db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import app.worker.consumer as consumer_module
+
     project_id = await _seed_project_and_template(db_session)
     sqs_message = _sqs_message(
         project_id,
@@ -72,6 +78,8 @@ async def test_process_sqs_message_success_marks_message_sent(db_session):
 
     fake_provider = AsyncMock()
     fake_provider.send.return_value = ProviderResult(provider_message_id="brevo-1")
+    emit_mock = AsyncMock()
+    monkeypatch.setattr(consumer_module, "emit_metrics", emit_mock)
 
     await process_sqs_message(sqs_message, fake_provider)
 
@@ -81,9 +89,13 @@ async def test_process_sqs_message_success_marks_message_sent(db_session):
     assert messages[0].rendered_subject == "Welcome, Marcos!"
     assert messages[0].provider_message_id == "brevo-1"
     fake_provider.send.assert_awaited_once()
+    emitted_names = [metric[0] for call in emit_mock.await_args_list for metric in call.args[0]]
+    assert emitted_names == ["MessagesProcessed", "MessagesSent"]
 
 
-async def test_process_sqs_message_provider_failure_marks_message_failed(db_session):
+async def test_process_sqs_message_provider_failure_marks_message_failed(
+    db_session: AsyncSession,
+) -> None:
     from app.core.email_provider import EmailSendError
 
     project_id = await _seed_project_and_template(db_session)
@@ -101,16 +113,26 @@ async def test_process_sqs_message_provider_failure_marks_message_failed(db_sess
     messages = await MessageRepository(db_session).list()
     assert len(messages) == 1
     assert messages[0].status == MessageStatus.FAILED
+    assert messages[0].last_error is not None
     assert "401" in messages[0].last_error
 
 
-async def test_process_sqs_message_malformed_body_raises_before_any_send(db_session):
+async def test_process_sqs_message_malformed_body_raises_before_any_send(
+    db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import app.worker.consumer as consumer_module
+
     project_id = uuid.uuid4()
     sqs_message = _sqs_message(project_id, {"to": "test@example.com"})  # missing template_key
 
     fake_provider = AsyncMock()
+    emit_mock = AsyncMock()
+    monkeypatch.setattr(consumer_module, "emit_metrics", emit_mock)
 
     with pytest.raises(MalformedMessageError):
         await process_sqs_message(sqs_message, fake_provider)
 
     fake_provider.send.assert_not_awaited()
+    emit_mock.assert_awaited_once_with(
+        [("MessagesMalformed", 1, "Count")], {"TemplateKey": "unknown"}
+    )

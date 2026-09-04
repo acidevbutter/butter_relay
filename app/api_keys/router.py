@@ -1,21 +1,11 @@
 import uuid
-from typing import Annotated
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, status
 
+from app.api_keys.dependencies import ApiKeyServiceDep, CurrentApiKey
 from app.api_keys.models import ApiKey
-from app.api_keys.repository import ApiKeyRepository
 from app.api_keys.schemas import ApiKeyCreate, ApiKeyCreated, ApiKeyRead
-from app.api_keys.service import ApiKeyService
-from app.core.dependencies import CurrentApiKey, DbSession
 from app.core.exceptions import ForbiddenError
-
-
-def get_api_key_service(db: DbSession) -> ApiKeyService:
-    return ApiKeyService(ApiKeyRepository(db))
-
-
-ApiKeyServiceDep = Annotated[ApiKeyService, Depends(get_api_key_service)]
 
 router = APIRouter(prefix="/api/v1/api-keys", tags=["api-keys"])
 

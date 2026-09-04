@@ -12,10 +12,13 @@ app/worker/consumer.py, nothing in the service layer.
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass
 from typing import Protocol
 
 import httpx
+
+from app.core.metrics import emit_metrics
 
 logger = logging.getLogger(__name__)
 
@@ -41,8 +44,7 @@ class EmailProvider(Protocol):
         html: str,
         from_email: str,
         from_name: str | None = None,
-    ) -> ProviderResult:
-        ...
+    ) -> ProviderResult: ...
 
 
 class BrevoEmailProvider:
@@ -71,13 +73,22 @@ class BrevoEmailProvider:
         owns_client = client is None
         if client is None:
             client = httpx.AsyncClient(timeout=10.0)
+        start = time.perf_counter()
         try:
             response = await client.post(BREVO_SEND_URL, json=payload, headers=headers)
+        except Exception:
+            await emit_metrics([("EmailProviderErrorCount", 1, "Count")], {"Provider": "brevo"})
+            raise
         finally:
             if owns_client:
                 await client.aclose()
 
+        await emit_metrics(
+            [("EmailProviderLatency", (time.perf_counter() - start) * 1000, "Milliseconds")],
+            {"Provider": "brevo"},
+        )
         if response.status_code >= 400:
+            await emit_metrics([("EmailProviderErrorCount", 1, "Count")], {"Provider": "brevo"})
             raise EmailSendError(f"Brevo send failed ({response.status_code}): {response.text}")
 
         data = response.json()

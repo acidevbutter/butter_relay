@@ -157,8 +157,8 @@ app/
 ├── core/                   # dependencies.py, decorators.py (log_call/log_errors),
 │                           # exceptions.py (self-registering handlers), email_provider.py
 ├── db/                     # base.py, session.py, all_models.py (for Alembic autogenerate)
-├── projects/                # router/schemas/models/service/repository
-├── api_keys/                 # scoped credentials per project
+├── projects/                # router/schemas/models/service/repository/dependencies
+├── api_keys/                 # scoped credentials per project (+ CurrentApiKey auth dep)
 ├── templates_/                # email templates (subject + Jinja2 html body, versioned)
 ├── messages/                  # one row per send attempt = the email log
 ├── auth/                       # AdminUser, login/logout, session dependency
@@ -170,7 +170,7 @@ scripts/curl_smoke_test.sh  # end-to-end curl smoke test
 tests/                      # pytest suite
 ```
 
-Each domain package (`projects`, `api_keys`, `templates_`, `messages`, `auth`) follows the same five-file shape: `router.py`, `schemas.py`, `models.py`, `service.py`, `repository.py`.
+Each domain package (`projects`, `api_keys`, `templates_`, `messages`, `auth`) follows the same six-file shape: `router.py`, `schemas.py`, `models.py`, `service.py`, `repository.py`, `dependencies.py`. `dependencies.py` holds the domain's DI wiring — `get_*_service` factories + their `Annotated[..., Depends(...)]` aliases, plus the auth deps the domain owns (`auth/` owns `CurrentAdminUser`/`CurrentAdminUserApi`; `api_keys/` owns `CurrentApiKey`). A domain that needs another's DI imports from `app.<owner>.dependencies`, never from `app.<owner>.router`; `core/dependencies.py` keeps only `DbSession`.
 
 ## Step-by-step: run it locally
 
