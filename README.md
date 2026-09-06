@@ -201,6 +201,7 @@ the ElasticMQ, API, and worker containers:
 | Service | Purpose | Local port |
 |---|---|---|
 | `elasticmq` | SQS-compatible queue for local dev | `9324` |
+| `mailpit` | SMTP server and web UI for local emails | `1025`, `8025` |
 | `api` | FastAPI app (dashboard + JSON API), auto-reload | `8010` → `8000` |
 | `worker` | SQS long-poll consumer | — |
 
@@ -210,6 +211,8 @@ Check everything is up:
 docker compose ps
 curl -s http://localhost:8010/health
 ```
+
+Mailpit: http://localhost:8025
 
 ### 4. Apply the database migration
 
