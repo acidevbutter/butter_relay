@@ -4,6 +4,10 @@ Registro retroativo baseado em todos os commits da branch `master`.
 
 ## Unreleased
 
+- Adicionado Mailpit ao Compose de desenvolvimento, com SMTP na porta `1025` e interface web na porta `8025`.
+
+- Adicionada `docs/API_SPEC.md`: mapa da API v1, dashboard e worker do Relay.
+
 - Adicionada restrição de destinatários para Relay em staging e pré-produção.
 
 ## [0.1.0] — 2026-08-21
