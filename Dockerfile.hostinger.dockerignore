@@ -1,0 +1,19 @@
+# `docker build -f Dockerfile.hostinger .` — excludes local secrets and tests.
+.git
+.env
+.env.*
+certs/
+*.key
+*.pem
+.venv/
+__pycache__/
+*.pyc
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+tests/
+docs/
+scripts/
+README.md
+CHANGELOG.md
+RELEASE_NOTES.md
