@@ -2,7 +2,7 @@
 # Same image, same database `relay`. ElasticMQ lives in devbutter-staging-deps.
 
 services:
-  api:
+  relay-api:
     build:
       context: .
       dockerfile: Dockerfile.hostinger
@@ -21,9 +21,7 @@ services:
       BUTTER_BLOB_NAMESPACE: ${BUTTER_BLOB_NAMESPACE:-nfse}
       BREVO_API_KEY: ${BREVO_API_KEY:-}
     networks:
-      coolify:
-        aliases:
-          - relay-api
+      - coolify
     healthcheck:
       test:
         [
@@ -39,7 +37,7 @@ services:
     expose:
       - "8000"
 
-  worker:
+  relay-worker:
     build:
       context: .
       dockerfile: Dockerfile.hostinger
@@ -58,11 +56,9 @@ services:
       BUTTER_BLOB_NAMESPACE: ${BUTTER_BLOB_NAMESPACE:-nfse}
       BREVO_API_KEY: ${BREVO_API_KEY:-}
     networks:
-      coolify:
-        aliases:
-          - relay-worker
+      - coolify
     depends_on:
-      api:
+      relay-api:
         condition: service_healthy
 
 networks:
