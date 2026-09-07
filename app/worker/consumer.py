@@ -19,12 +19,13 @@ import boto3  # type: ignore[import-untyped]
 from app.api_keys.repository import (
     ApiKeyRepository,  # noqa: F401  (SQS auth is IAM, not API key -- see plan)
 )
+from app.core.blob_client import BlobClient, get_blob_client
 from app.core.decorators import log_call
 from app.core.email_provider import BrevoEmailProvider, EmailSendError
-from app.core.exceptions import NotFoundError
+from app.core.exceptions import NotFoundError, ValidationFailedError
 from app.core.metrics import emit_metrics
 from app.db.session import session_factory
-from app.messages.models import Message
+from app.messages.models import Message, MessageStatus
 from app.messages.repository import MessageRepository
 from app.messages.schemas import MessageCreate
 from app.messages.service import MessageService
@@ -64,8 +65,11 @@ def _parse_sqs_message(sqs_message: dict[str, Any]) -> tuple[uuid.UUID, str, str
 
 @log_call  # type: ignore[untyped-decorator]
 async def process_sqs_message(
-    sqs_message: dict[str, Any], email_provider: BrevoEmailProvider
+    sqs_message: dict[str, Any],
+    email_provider: BrevoEmailProvider,
+    blob_client: BlobClient | None = None,
 ) -> None:
+    blob = blob_client or get_blob_client()
     async with session_factory() as session:
         project_service = ProjectService(ProjectRepository(session))
         template_service = TemplateService(TemplateRepository(session))
@@ -77,23 +81,45 @@ async def process_sqs_message(
             await emit_metrics([("MessagesMalformed", 1, "Count")], {"TemplateKey": "unknown"})
             raise
 
+        sqs_id = sqs_message.get("MessageId")
+        if isinstance(sqs_id, str) and sqs_id:
+            existing = await message_service.get_by_sqs_message_id(sqs_id)
+            if existing is not None and existing.status == MessageStatus.SENT:
+                await emit_metrics(
+                    [("MessagesProcessed", 1, "Count")], {"TemplateKey": template_key}
+                )
+                return
+
         dimensions = {"TemplateKey": template_key}
         await emit_metrics([("MessagesProcessed", 1, "Count")], dimensions)
         try:
             project = await project_service.get(project_id)
+            if not project.is_active:
+                logger.warning("skipping message for inactive project %s", project_id)
+                await emit_metrics([("MessagesFailed", 1, "Count")], dimensions)
+                return
+
             template = await template_service.get_active(project_id, template_key)
+            render_payload = dict(payload)
+            blob_id = render_payload.get("blob_id")
+            if blob_id:
+                blob_meta = await blob.get(str(blob_id))
+                public_url = blob_meta.get("public_url")
+                if not isinstance(public_url, str) or not public_url:
+                    raise ValidationFailedError("NFS-e blob has no public_url")
+                render_payload["cta_link"] = public_url
 
             message: Message = await message_service.create(
                 MessageCreate(
                     project_id=project_id,
                     template_id=template.id,
                     to_email=to_email,
-                    payload=payload,
+                    payload=render_payload,
                     sqs_message_id=sqs_message.get("MessageId"),
                 )
             )
 
-            subject, html = template_service.render(template, payload)
+            subject, html = template_service.render(template, render_payload)
             message = await message_service.mark_processing(message, subject)
 
             if not settings.is_recipient_allowed(to_email):
@@ -114,6 +140,11 @@ async def process_sqs_message(
             await emit_metrics([("MessagesSent", 1, "Count")], dimensions)
         except EmailSendError as exc:
             await message_service.mark_failed(message, exc.detail)
+            await emit_metrics([("MessagesFailed", 1, "Count")], dimensions)
+            raise
+        except ValidationFailedError as exc:
+            if "message" in locals():
+                await message_service.mark_failed(message, exc.detail)
             await emit_metrics([("MessagesFailed", 1, "Count")], dimensions)
             raise
         except Exception:
@@ -138,7 +169,7 @@ async def run_forever() -> None:
         for sqs_message in response.get("Messages", []):
             try:
                 await process_sqs_message(sqs_message, email_provider)
-            except (MalformedMessageError, NotFoundError, EmailSendError):
+            except (MalformedMessageError, NotFoundError, EmailSendError, ValidationFailedError):
                 # Recorded in Message.status / logged by @log_call already;
                 # leave the SQS message un-deleted so visibility-timeout expiry
                 # retries it, and after maxReceiveCount SQS's redrive policy
