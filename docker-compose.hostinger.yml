@@ -1,0 +1,70 @@
+# Coolify staging: API + worker on the shared coolify network.
+# Same image, same database `relay`. ElasticMQ lives in devbutter-staging-deps.
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.hostinger
+    environment:
+      ENVIRONMENT: ${ENVIRONMENT:-staging}
+      DATABASE_URL: ${DATABASE_URL}
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_EMF_ENVIRONMENT: ${AWS_EMF_ENVIRONMENT:-Local}
+      SQS_ENDPOINT_URL: ${SQS_ENDPOINT_URL}
+      SQS_QUEUE_URL: ${SQS_QUEUE_URL}
+      SESSION_SECRET: ${SESSION_SECRET}
+      ALLOWED_RECIPIENT_DOMAINS: ${ALLOWED_RECIPIENT_DOMAINS:-}
+      BUTTER_BLOB_BASE_URL: ${BUTTER_BLOB_BASE_URL:-}
+      BUTTER_BLOB_NAMESPACE: ${BUTTER_BLOB_NAMESPACE:-nfse}
+      BREVO_API_KEY: ${BREVO_API_KEY:-}
+    networks:
+      coolify:
+        aliases:
+          - relay-api
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    expose:
+      - "8000"
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.hostinger
+    command: python -m app.worker
+    environment:
+      ENVIRONMENT: ${ENVIRONMENT:-staging}
+      DATABASE_URL: ${DATABASE_URL}
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_EMF_ENVIRONMENT: ${AWS_EMF_ENVIRONMENT:-Local}
+      SQS_ENDPOINT_URL: ${SQS_ENDPOINT_URL}
+      SQS_QUEUE_URL: ${SQS_QUEUE_URL}
+      ALLOWED_RECIPIENT_DOMAINS: ${ALLOWED_RECIPIENT_DOMAINS:-}
+      BUTTER_BLOB_BASE_URL: ${BUTTER_BLOB_BASE_URL:-}
+      BUTTER_BLOB_NAMESPACE: ${BUTTER_BLOB_NAMESPACE:-nfse}
+      BREVO_API_KEY: ${BREVO_API_KEY:-}
+    networks:
+      coolify:
+        aliases:
+          - relay-worker
+    depends_on:
+      api:
+        condition: service_healthy
+
+networks:
+  coolify:
+    external: true

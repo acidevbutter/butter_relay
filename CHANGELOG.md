@@ -4,6 +4,8 @@ Registro retroativo baseado em todos os commits da branch `master`.
 
 ## Unreleased
 
+- Adicionado `docker-compose.hostinger.yml` com `api` + `worker` no mesmo Postgres `relay` para o Coolify staging.
+
 - Adicionado Mailpit ao Compose de desenvolvimento, com SMTP na porta `1025` e interface web na porta `8025`.
 
 - Adicionada `docs/API_SPEC.md`: mapa da API v1, dashboard e worker do Relay.
