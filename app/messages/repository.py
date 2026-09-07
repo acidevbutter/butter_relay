@@ -29,6 +29,12 @@ class MessageRepository:
     async def get(self, message_id: uuid.UUID) -> Message | None:
         return await self.session.get(Message, message_id)
 
+    async def get_by_sqs_message_id(self, sqs_message_id: str) -> Message | None:
+        result = await self.session.execute(
+            select(Message).where(Message.sqs_message_id == sqs_message_id)
+        )
+        return result.scalar_one_or_none()
+
     async def create(self, payload: MessageCreate) -> Message:
         message = Message(**payload.model_dump())
         self.session.add(message)

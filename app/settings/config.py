@@ -24,6 +24,11 @@ class Settings(BaseSettings):
     brevo_api_key: str = ""
     allowed_recipient_domains: str = ""
 
+    butter_blob_base_url: str = ""
+    butter_blob_api_key: str = ""
+    butter_blob_namespace: str = "nfse"
+    butter_blob_timeout_seconds: float = 15.0
+
     session_secret: str = "dev-only-insecure-secret-change-me"
     session_cookie_name: str = "butter_relay_session"
 
