@@ -221,7 +221,7 @@ docker compose exec api alembic upgrade head
 ```
 
 (Or from the host, if you have Poetry installed and Postgres reachable on `localhost:5436`:
-`DATABASE_URL="postgresql+asyncpg://relay:relay@localhost:5436/relay" poetry run alembic upgrade head`)
+`DATABASE_HOST=localhost DATABASE_PORT=5436 DATABASE_USER=relay DATABASE_PASSWORD=relay DATABASE_NAME=relay poetry run alembic upgrade head`)
 
 ### 5. Create the first admin user
 
@@ -305,7 +305,7 @@ Exercises the real HTTP surface end-to-end: health check, admin login/session, p
 |---|---|---|
 | `DEBUG` | `false` | Relaxes cookie `Secure` flag when true |
 | `LOG_LEVEL` | `INFO` | |
-| `DATABASE_URL` | `postgresql+asyncpg://relay:relay@shared-postgres:5432/relay` | |
+| `DATABASE_HOST` / `PORT` / `USER` / `PASSWORD` / `NAME` | `shared-postgres` / `5432` / `relay` | Pydantic monta `postgresql+asyncpg://` |
 | `AWS_REGION` | `us-east-1` | |
 | `SQS_QUEUE_URL` | — | Full queue URL the worker polls |
 | `SQS_ENDPOINT_URL` | — | Set for ElasticMQ locally; **unset on AWS** so `boto3` talks to real SQS |
@@ -329,9 +329,9 @@ Message attribute `project_id` (string UUID) identifies the tenant — this is h
 ## Deploying to AWS (shape, not IaC)
 
 - **ECS Fargate**: one service running `uvicorn app.main:app` (the API/dashboard), one running `python -m app.worker` — same image, different `command`.
-- **RDS Postgres** for `DATABASE_URL`.
+- **RDS Postgres** via `DATABASE_HOST` / `PORT` / `USER` / `PASSWORD` / `NAME`.
 - **SQS** with a redrive policy (`maxReceiveCount`) to a DLQ — dead-letter handling is infra-level; the app just leaves a message un-deleted on failure.
-- **Secrets Manager** for `DATABASE_URL` credentials, `BREVO_API_KEY`, `SESSION_SECRET`.
+- **Secrets Manager** for `DATABASE_*` credentials, `BREVO_API_KEY`, `SESSION_SECRET`.
 - Leave `SQS_ENDPOINT_URL` unset so `boto3` uses real SQS with the task's IAM role.
 
 ## Roadmap notes

@@ -4,6 +4,10 @@ Registro retroativo baseado em todos os commits da branch `master`.
 
 ## Unreleased
 
+- Conexão Postgres passa a ser `DATABASE_HOST` / `PORT` / `USER` / `PASSWORD` /
+  `NAME`; o Pydantic monta `postgresql+asyncpg://`. `DATABASE_URL` residual
+  impede o boot fora de development.
+
 - Adicionado `docker-compose.hostinger.yml` com `api` + `worker` no mesmo Postgres `relay` para o Coolify staging.
 
 - Adicionado Mailpit ao Compose de desenvolvimento, com SMTP na porta `1025` e interface web na porta `8025`.

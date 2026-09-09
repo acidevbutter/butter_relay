@@ -1,5 +1,8 @@
+import os
 from typing import Literal
+from urllib.parse import quote
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -10,7 +13,11 @@ class Settings(BaseSettings):
     debug: bool = False
     log_level: str = "INFO"
 
-    database_url: str = "postgresql+asyncpg://relay:relay@shared-postgres:5432/relay"
+    database_host: str = "shared-postgres"
+    database_port: int = 5432
+    database_user: str = "relay"
+    database_password: str = "relay"
+    database_name: str = "relay"
 
     aws_region: str = "us-east-1"
     sqs_queue_url: str = ""
@@ -31,6 +38,24 @@ class Settings(BaseSettings):
 
     session_secret: str = "dev-only-insecure-secret-change-me"
     session_cookie_name: str = "butter_relay_session"
+
+    @property
+    def database_url(self) -> str:
+        user = quote(self.database_user, safe="")
+        password = quote(self.database_password, safe="")
+        return (
+            f"postgresql+asyncpg://{user}:{password}"
+            f"@{self.database_host}:{self.database_port}/{self.database_name}"
+        )
+
+    @model_validator(mode="after")
+    def reject_legacy_database_url_outside_dev(self) -> "Settings":
+        if self.environment != "development" and os.environ.get("DATABASE_URL"):
+            raise ValueError(
+                "DATABASE_URL is no longer read; set DATABASE_HOST, DATABASE_PORT, "
+                "DATABASE_USER, DATABASE_PASSWORD and DATABASE_NAME"
+            )
+        return self
 
     def is_recipient_allowed(self, email: str) -> bool:
         if self.environment in {"development", "production"}:

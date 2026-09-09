@@ -37,7 +37,11 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: postgresql+asyncpg://relay:relay@shared-postgres:5432/relay
+      DATABASE_HOST: shared-postgres
+      DATABASE_PORT: "5432"
+      DATABASE_USER: relay
+      DATABASE_PASSWORD: relay
+      DATABASE_NAME: relay
       SQS_ENDPOINT_URL: http://elasticmq:9324
       # ElasticMQ doesn't check these, but boto3 refuses to sign a request with
       # no credentials at all. On real AWS, the ECS task's IAM role supplies
@@ -67,7 +71,11 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: postgresql+asyncpg://relay:relay@shared-postgres:5432/relay
+      DATABASE_HOST: shared-postgres
+      DATABASE_PORT: "5432"
+      DATABASE_USER: relay
+      DATABASE_PASSWORD: relay
+      DATABASE_NAME: relay
       SQS_ENDPOINT_URL: http://elasticmq:9324
       AWS_ACCESS_KEY_ID: local-dev
       AWS_SECRET_ACCESS_KEY: local-dev
