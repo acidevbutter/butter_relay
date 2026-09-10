@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Form, Request
+from fastapi import APIRouter, Form, Request, Response
 from fastapi.responses import RedirectResponse
 
 from app.admin.templating import templates
@@ -11,7 +11,7 @@ router = APIRouter(prefix="/admin", tags=["auth"])
 
 
 @router.get("/login", summary="Show the admin login form")
-async def login_form(request: Request):
+async def login_form(request: Request) -> Response:
     return templates.TemplateResponse(request, "login.html", {"error": None})
 
 
@@ -21,7 +21,7 @@ async def login(
     service: AuthServiceDep,
     email: Annotated[str, Form()],
     password: Annotated[str, Form()],
-):
+) -> Response:
     try:
         admin_user = await service.authenticate(email, password)
     except UnauthorizedError as exc:
@@ -33,6 +33,6 @@ async def login(
 
 
 @router.post("/logout", summary="End the admin session")
-async def logout(request: Request):
+async def logout(request: Request) -> Response:
     request.session.clear()
     return RedirectResponse(url="/admin/login", status_code=303)

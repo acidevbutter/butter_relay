@@ -21,7 +21,7 @@ def _require_same_project(current_api_key: ApiKey, project_id: uuid.UUID) -> Non
 @router.get("/", response_model=list[ApiKeyRead], summary="List API keys for a project")
 async def list_api_keys(
     project_id: uuid.UUID, current_api_key: CurrentApiKey, service: ApiKeyServiceDep
-) -> list[ApiKeyRead]:
+) -> list[ApiKey]:
     _require_same_project(current_api_key, project_id)
     return await service.list_for_project(project_id)
 
@@ -46,6 +46,6 @@ async def revoke_api_key(
     project_id: uuid.UUID,
     current_api_key: CurrentApiKey,
     service: ApiKeyServiceDep,
-) -> ApiKeyRead:
+) -> ApiKey:
     _require_same_project(current_api_key, project_id)
     return await service.revoke(api_key_id, project_id)

@@ -3,6 +3,8 @@ docs/prompts/autenticar-api-v1.md (see docs/auditoria-seguranca-2026-08-29.md it
 Broader coverage of this module is tracked in docs/prompts/cobertura-testes-messages-api-keys.md.
 """
 
+import uuid
+
 from app.api_keys.repository import ApiKeyRepository
 from app.api_keys.service import ApiKeyService
 from app.core.exceptions import NotFoundError, UnauthorizedError
@@ -56,7 +58,9 @@ async def test_revoke_unknown_key_raises_not_found(db_session):
 
     raised = False
     try:
-        await service.revoke("00000000-0000-0000-0000-000000000000", project_id)
+        await service.revoke(
+            uuid.UUID("00000000-0000-0000-0000-000000000000"), uuid.UUID(project_id)
+        )
     except NotFoundError:
         raised = True
     assert raised

@@ -8,6 +8,7 @@ import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Form, Request
+from fastapi.responses import HTMLResponse
 
 from app.admin.templating import templates
 from app.api_keys.dependencies import ApiKeyServiceDep
@@ -28,7 +29,7 @@ router = APIRouter(prefix="/admin", tags=["admin"])
 @router.get("", summary="Admin dashboard home")
 async def dashboard(
     request: Request, admin_user: CurrentAdminUser, message_service: MessageServiceDep
-):
+) -> HTMLResponse:
     recent_messages = await message_service.list(limit=10)
     return templates.TemplateResponse(
         request, "dashboard.html", {"admin_user": admin_user, "recent_messages": recent_messages}
@@ -39,7 +40,9 @@ async def dashboard(
 
 
 @router.get("/projects", summary="List + create projects")
-async def list_projects(request: Request, admin_user: CurrentAdminUser, service: ProjectServiceDep):
+async def list_projects(
+    request: Request, admin_user: CurrentAdminUser, service: ProjectServiceDep
+) -> HTMLResponse:
     projects = await service.list()
     return templates.TemplateResponse(
         request, "projects.html", {"admin_user": admin_user, "projects": projects, "error": None}
@@ -56,7 +59,7 @@ async def create_project(
     sqs_queue_url: Annotated[str, Form()],
     default_sender_email: Annotated[str, Form()],
     default_sender_name: Annotated[str, Form()],
-):
+) -> HTMLResponse:
     await service.create(
         ProjectCreate(
             name=name,
@@ -80,7 +83,7 @@ async def project_detail(
     project_service: ProjectServiceDep,
     api_key_service: ApiKeyServiceDep,
     template_service: TemplateServiceDep,
-):
+) -> HTMLResponse:
     project = await project_service.get(project_id)
     api_keys = await api_key_service.list_for_project(project_id)
     project_templates = await template_service.list_for_project(project_id)
@@ -106,7 +109,7 @@ async def create_api_key(
     project_service: ProjectServiceDep,
     api_key_service: ApiKeyServiceDep,
     template_service: TemplateServiceDep,
-):
+) -> HTMLResponse:
     api_key, plaintext_key = await api_key_service.create(project_id, label)
     project = await project_service.get(project_id)
     api_keys = await api_key_service.list_for_project(project_id)
@@ -133,7 +136,7 @@ async def revoke_api_key(
     project_service: ProjectServiceDep,
     api_key_service: ApiKeyServiceDep,
     template_service: TemplateServiceDep,
-):
+) -> HTMLResponse:
     await api_key_service.revoke(api_key_id, project_id)
     project = await project_service.get(project_id)
     api_keys = await api_key_service.list_for_project(project_id)
@@ -165,7 +168,7 @@ async def publish_template(
     project_service: ProjectServiceDep,
     api_key_service: ApiKeyServiceDep,
     template_service: TemplateServiceDep,
-):
+) -> HTMLResponse:
     await template_service.publish(
         TemplateCreate(
             project_id=project_id,
@@ -197,7 +200,7 @@ async def preview_template(
     template_id: uuid.UUID,
     sample_payload: Annotated[str, Form()],
     service: TemplateServiceDep,
-):
+) -> HTMLResponse:
     template = await service.get(template_id)
     try:
         payload = json.loads(sample_payload) if sample_payload.strip() else {}
@@ -222,7 +225,7 @@ async def list_messages(
     project_service: ProjectServiceDep,
     project_id: uuid.UUID | None = None,
     status_filter: MessageStatus | None = None,
-):
+) -> HTMLResponse:
     messages = await message_service.list(project_id, status_filter, limit=200)
     projects = await project_service.list()
     return templates.TemplateResponse(
@@ -245,7 +248,7 @@ async def message_detail(
     message_id: uuid.UUID,
     message_service: MessageServiceDep,
     template_service: TemplateServiceDep,
-):
+) -> HTMLResponse:
     message = await message_service.get(message_id)
     subject, html, render_error = message.rendered_subject or "", None, None
     if message.template_id is not None:
@@ -275,7 +278,7 @@ async def resend_message(
     message_service: MessageServiceDep,
     project_service: ProjectServiceDep,
     template_service: TemplateServiceDep,
-):
+) -> HTMLResponse:
     message = await message_service.get(message_id)
     project = await project_service.get(message.project_id)
 
