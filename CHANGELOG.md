@@ -4,6 +4,15 @@ Registro retroativo baseado em todos os commits da branch `master`.
 
 ## Unreleased
 
+- Logging de requisições HTTP passa a ser JSON estruturado (`timestamp`, `level`,
+  `logger`, `event`, `service`, `environment`, `request_id`, `method`, `route`,
+  `status_code`, `duration_ms`), com exatamente um evento de conclusão
+  (`request_completed`/`request_failed`) por requisição. O logger
+  `uvicorn.access` foi silenciado (`WARNING`, `propagate=False`) para eliminar
+  a duplicata que ele produzia ao lado do log da própria
+  `RequestContextMiddleware`. Nenhum payload, header ou segredo é incluído no
+  log de erro (`app/settings/logging_config.py`, `app/settings/middleware.py`).
+
 - Conexão Postgres passa a ser `DATABASE_HOST` / `PORT` / `USER` / `PASSWORD` /
   `NAME`; o Pydantic monta `postgresql+asyncpg://`. `DATABASE_URL` residual
   impede o boot fora de development.
