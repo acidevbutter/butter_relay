@@ -1,11 +1,12 @@
 import json
 import uuid
-from typing import Any
+from typing import Any, cast
 from unittest.mock import AsyncMock
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.blob_client import BlobClient
 from app.core.email_provider import ProviderResult
 from app.messages.models import MessageStatus
 from app.messages.repository import MessageRepository
@@ -211,7 +212,7 @@ async def test_nota_fiscal_resolves_blob_public_url_as_cta(
     fake_provider.send.return_value = ProviderResult(provider_message_id="brevo-nfse")
     monkeypatch.setattr(consumer_module, "emit_metrics", AsyncMock())
     fake_blob = _FakeBlob()
-    await process_sqs_message(sqs_message, fake_provider, blob_client=fake_blob)
+    await process_sqs_message(sqs_message, fake_provider, blob_client=cast(BlobClient, fake_blob))
     html = fake_provider.send.await_args.kwargs["html"]
     assert "https://blob.test/v1/public/nfse/n.pdf" in html
     assert fake_blob.ids == ["11111111-1111-1111-1111-111111111111"]

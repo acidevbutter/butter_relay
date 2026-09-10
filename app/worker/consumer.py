@@ -63,7 +63,7 @@ def _parse_sqs_message(sqs_message: dict[str, Any]) -> tuple[uuid.UUID, str, str
     return project_id, template_key, to_email, payload
 
 
-@log_call  # type: ignore[untyped-decorator]
+@log_call
 async def process_sqs_message(
     sqs_message: dict[str, Any],
     email_provider: BrevoEmailProvider,

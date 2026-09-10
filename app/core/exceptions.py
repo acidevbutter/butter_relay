@@ -1,9 +1,10 @@
 from collections.abc import Awaitable, Callable
+from typing import Any
 
 from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse, RedirectResponse, Response
 
-Handler = Callable[[Request, Exception], Awaitable[Response]]
+Handler = Callable[[Request, Any], Awaitable[Response]]
 _registry: dict[type[Exception], Handler] = {}
 
 
