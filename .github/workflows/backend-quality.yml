@@ -12,6 +12,12 @@ concurrency:
 jobs:
   quality:
     runs-on: ubuntu-latest
+    env:
+      # SessionMiddleware sets https_only=not settings.debug (see
+      # app/settings/middleware.py); the admin-session tests exercise the
+      # cookie over the test client's plain http:// base_url, same as
+      # .env.example's own DEBUG=true recommendation for local dev.
+      DEBUG: "true"
     steps:
       - uses: actions/checkout@v4
       - name: Install Poetry
