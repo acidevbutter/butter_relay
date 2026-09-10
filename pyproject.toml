@@ -46,6 +46,11 @@ extend-exclude = ["alembic/versions"]
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
 
+[tool.ruff.lint.isort]
+# The project has a top-level `alembic/` dir, which makes isort mistake the
+# installed `alembic` package for first-party code.
+known-third-party = ["alembic"]
+
 [tool.mypy]
 python_version = "3.12"
 plugins = ["pydantic.mypy"]
@@ -57,12 +62,12 @@ module = ["boto3.*", "botocore.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
-# Test functions take pytest fixtures as untyped parameters by design.
+# Tests take untyped pytest fixtures and lean on runtime validation (Pydantic,
+# monkeypatch) over static typing by design -- not held to the same strict
+# bar as application code.
 module = "tests.*"
-disallow_untyped_defs = false
-disallow_incomplete_defs = false
-disallow_untyped_decorators = false
-disallow_untyped_calls = false
+strict = false
+strict_optional = false
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
