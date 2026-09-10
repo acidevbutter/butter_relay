@@ -16,10 +16,20 @@ WORKDIR /app
 COPY pyproject.toml poetry.lock* ./
 RUN poetry install --only main --no-root
 
-COPY app ./app
-COPY alembic ./alembic
-COPY alembic.ini ./
+RUN groupadd --system --gid 10001 app \
+    && useradd --system --uid 10001 --gid app --home-dir /app app
+
+COPY --chown=app:app app ./app
+COPY --chown=app:app alembic ./alembic
+COPY --chown=app:app alembic.ini ./
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
+USER app
+
+EXPOSE 8000
 
 # Same image for both processes -- overridden via `command:` in docker-compose
 # (api: uvicorn, worker: python -m app.worker).
+ENTRYPOINT ["docker-entrypoint.sh"]
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
