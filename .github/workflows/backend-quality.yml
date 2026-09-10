@@ -1,0 +1,29 @@
+name: Backend quality
+
+on:
+  pull_request:
+  merge_group:
+  push:
+    branches:
+      - staging
+      - master
+
+concurrency:
+  group: backend-quality-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Poetry
+        run: pipx install poetry==1.8.3
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: poetry
+      - run: poetry install --no-root
+      - run: poetry run ruff check .
+      - run: poetry run mypy .
+      - run: poetry run pytest
