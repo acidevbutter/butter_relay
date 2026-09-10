@@ -1,6 +1,7 @@
 import enum
 import uuid
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
@@ -25,7 +26,7 @@ class Message(Base):
     # actually delivered today; see core/email_provider.py and the plan notes on scope.
     channel: Mapped[str] = mapped_column(String(20), default="email")
     to_email: Mapped[str] = mapped_column(String(320))
-    payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     rendered_subject: Mapped[str | None] = mapped_column(String(500), default=None)
     status: Mapped[MessageStatus] = mapped_column(
         String(20), default=MessageStatus.PENDING, index=True

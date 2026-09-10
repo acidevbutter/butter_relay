@@ -57,8 +57,8 @@ plugins = ["pydantic.mypy"]
 strict = true
 
 [[tool.mypy.overrides]]
-# boto3/botocore ship no type information.
-module = ["boto3.*", "botocore.*"]
+# boto3/botocore/jsonschema ship no type information.
+module = ["boto3.*", "botocore.*", "jsonschema.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]

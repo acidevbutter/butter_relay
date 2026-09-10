@@ -14,7 +14,7 @@ import logging
 import uuid
 from typing import Any
 
-import boto3  # type: ignore[import-untyped]
+import boto3
 
 from app.api_keys.repository import (
     ApiKeyRepository,  # noqa: F401  (SQS auth is IAM, not API key -- see plan)

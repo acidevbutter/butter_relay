@@ -4,6 +4,7 @@ from fastapi import APIRouter, status
 
 from app.auth.dependencies import CurrentAdminUserApi
 from app.projects.dependencies import ProjectServiceDep
+from app.projects.models import Project
 from app.projects.schemas import ProjectCreate, ProjectRead, ProjectUpdate
 
 router = APIRouter(prefix="/api/v1/projects", tags=["projects"])
@@ -16,7 +17,7 @@ router = APIRouter(prefix="/api/v1/projects", tags=["projects"])
 @router.get("/", response_model=list[ProjectRead], summary="List projects")
 async def list_projects(
     admin_user: CurrentAdminUserApi, service: ProjectServiceDep
-) -> list[ProjectRead]:
+) -> list[Project]:
     return await service.list()
 
 
@@ -25,14 +26,14 @@ async def list_projects(
 )
 async def create_project(
     payload: ProjectCreate, admin_user: CurrentAdminUserApi, service: ProjectServiceDep
-) -> ProjectRead:
+) -> Project:
     return await service.create(payload)
 
 
 @router.get("/{project_id}", response_model=ProjectRead, summary="Get a project")
 async def get_project(
     project_id: uuid.UUID, admin_user: CurrentAdminUserApi, service: ProjectServiceDep
-) -> ProjectRead:
+) -> Project:
     return await service.get(project_id)
 
 
@@ -42,5 +43,5 @@ async def update_project(
     payload: ProjectUpdate,
     admin_user: CurrentAdminUserApi,
     service: ProjectServiceDep,
-) -> ProjectRead:
+) -> Project:
     return await service.update(project_id, payload)

@@ -2,7 +2,7 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from app.core.dependencies import get_db_session
+from app.db.session import get_db_session
 from app.db import all_models  # noqa: F401  -- populates Base.metadata
 from app.db.base import Base
 from app.main import app

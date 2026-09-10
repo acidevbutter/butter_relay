@@ -1,13 +1,13 @@
 from collections.abc import Awaitable, Callable
 
-from fastapi import Request, status
+from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse, RedirectResponse, Response
 
 Handler = Callable[[Request, Exception], Awaitable[Response]]
 _registry: dict[type[Exception], Handler] = {}
 
 
-def exception_handler(exc_type: type[Exception]):
+def exception_handler(exc_type: type[Exception]) -> Callable[[Handler], Handler]:
     """Decorator that registers a handler function for an exception type.
     Collect all of these onto the app with register_exception_handlers(app).
     """
@@ -17,7 +17,7 @@ def exception_handler(exc_type: type[Exception]):
     return decorator
 
 
-def register_exception_handlers(app) -> None:
+def register_exception_handlers(app: FastAPI) -> None:
     for exc_type, handler in _registry.items():
         app.add_exception_handler(exc_type, handler)
 

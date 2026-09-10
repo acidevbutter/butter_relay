@@ -1,4 +1,5 @@
 import uuid
+from typing import Any
 
 import jsonschema
 from jinja2.sandbox import SandboxedEnvironment
@@ -55,7 +56,7 @@ class TemplateService:
         )
         return await self.repository.create(template)
 
-    def render(self, template: Template, payload: dict) -> tuple[str, str]:
+    def render(self, template: Template, payload: dict[str, Any]) -> tuple[str, str]:
         if template.variables_schema:
             try:
                 jsonschema.validate(instance=payload, schema=template.variables_schema)
