@@ -19,14 +19,13 @@ class Settings(BaseSettings):
     database_password: str = "relay"
     database_name: str = "relay"
 
-    aws_region: str = "us-east-1"
-    sqs_queue_url: str = ""
-    # Set only for local dev, pointed at the ElasticMQ container. Left unset on AWS
-    # so boto3 talks to real SQS.
-    sqs_endpoint_url: str | None = None
-    sqs_wait_time_seconds: int = 20
-    sqs_max_messages: int = 10
-    sqs_visibility_timeout: int = 60
+    # Celery broker/result backend. Same Redis instance the worker (celery -A
+    # app.worker.celery_app worker) and the API share -- devbutter_backend and
+    # selolibertaria_backend publish onto REDIS_QUEUE_NAME with their own
+    # Celery client pointed at this same URL. Left pointing at the local
+    # docker-compose `redis` service for dev.
+    redis_url: str = "redis://redis:6379/0"
+    redis_queue_name: str = "relay-shared"
 
     brevo_api_key: str = ""
     allowed_recipient_domains: str = ""

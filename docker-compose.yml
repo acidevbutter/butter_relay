@@ -1,19 +1,17 @@
 services:
-  # SQS-API-compatible queue for local dev, so the worker's boto3 client code
-  # is identical here and on real AWS SQS -- only SQS_ENDPOINT_URL differs.
-  elasticmq:
-    image: softwaremill/elasticmq-native:1.5.7
+  # Local Redis, standing in for the same Redis instance that fronts prod/staging
+  # on Coolify -- the worker's Celery client code is identical either way, only
+  # REDIS_URL differs.
+  redis:
+    image: redis:7-alpine
     profiles: ["dev"]
     ports:
-      - "9324:9324"
-      - "9325:9325"
-    volumes:
-      - ./elasticmq.conf:/opt/elasticmq.conf:ro
+      - "6379:6379"
     networks:
       default:
       devbutter_shared:
         aliases:
-          - elasticmq
+          - redis
 
   mailpit:
     image: axllent/mailpit:latest
@@ -36,14 +34,6 @@ services:
       - "8010:8000"
     env_file:
       - .env
-    environment:
-      # Docker DNS. Credentials and DATABASE_* come from env_file.
-      SQS_ENDPOINT_URL: http://elasticmq:9324
-      # ElasticMQ doesn't check these, but boto3 refuses to sign a request with
-      # no credentials at all. On real AWS, the ECS task's IAM role supplies
-      # credentials automatically and these are never set/needed.
-      AWS_ACCESS_KEY_ID: local-dev
-      AWS_SECRET_ACCESS_KEY: local-dev
     volumes:
       - ./app:/app/app
       - ./alembic:/app/alembic
@@ -63,13 +53,11 @@ services:
 
   worker:
     build: .
-    command: python -m app.worker
+    command: celery -A app.worker.celery_app:celery_app worker --loglevel=info
     env_file:
       - .env
     environment:
-      SQS_ENDPOINT_URL: http://elasticmq:9324
-      AWS_ACCESS_KEY_ID: local-dev
-      AWS_SECRET_ACCESS_KEY: local-dev
+      REDIS_URL: redis://redis:6379/0
     volumes:
       - ./app:/app/app
     networks:

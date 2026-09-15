@@ -1,5 +1,6 @@
-# Coolify staging: API + worker on the shared coolify network.
-# Same image, same database `relay`. ElasticMQ lives in devbutter-staging-deps.
+# Coolify staging/prod: API + worker on the shared coolify network.
+# Same image, same database `relay`. Redis lives in devbutter-staging-deps
+# (or wherever REDIS_URL points -- a Coolify-managed Redis resource).
 
 services:
   relay-api:
@@ -13,12 +14,7 @@ services:
       DATABASE_USER: ${DATABASE_USER}
       DATABASE_PASSWORD: ${DATABASE_PASSWORD}
       DATABASE_NAME: ${DATABASE_NAME}
-      AWS_REGION: ${AWS_REGION:-us-east-1}
-      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
-      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
       AWS_EMF_ENVIRONMENT: ${AWS_EMF_ENVIRONMENT:-Local}
-      SQS_ENDPOINT_URL: ${SQS_ENDPOINT_URL}
-      SQS_QUEUE_URL: ${SQS_QUEUE_URL}
       SESSION_SECRET: ${SESSION_SECRET}
       ALLOWED_RECIPIENT_DOMAINS: ${ALLOWED_RECIPIENT_DOMAINS:-}
       BUTTER_BLOB_BASE_URL: ${BUTTER_BLOB_BASE_URL:-}
@@ -45,7 +41,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.hostinger
-    command: python -m app.worker
+    command: celery -A app.worker.celery_app:celery_app worker --loglevel=info
     environment:
       ENVIRONMENT: ${ENVIRONMENT:-staging}
       DATABASE_HOST: ${DATABASE_HOST}
@@ -53,12 +49,9 @@ services:
       DATABASE_USER: ${DATABASE_USER}
       DATABASE_PASSWORD: ${DATABASE_PASSWORD}
       DATABASE_NAME: ${DATABASE_NAME}
-      AWS_REGION: ${AWS_REGION:-us-east-1}
-      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
-      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
       AWS_EMF_ENVIRONMENT: ${AWS_EMF_ENVIRONMENT:-Local}
-      SQS_ENDPOINT_URL: ${SQS_ENDPOINT_URL}
-      SQS_QUEUE_URL: ${SQS_QUEUE_URL}
+      REDIS_URL: ${REDIS_URL}
+      REDIS_QUEUE_NAME: ${REDIS_QUEUE_NAME:-relay-shared}
       ALLOWED_RECIPIENT_DOMAINS: ${ALLOWED_RECIPIENT_DOMAINS:-}
       BUTTER_BLOB_BASE_URL: ${BUTTER_BLOB_BASE_URL:-}
       BUTTER_BLOB_NAMESPACE: ${BUTTER_BLOB_NAMESPACE:-nfse}

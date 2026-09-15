@@ -34,7 +34,7 @@ class Message(Base):
     attempts: Mapped[int] = mapped_column(Integer, default=0)
     last_error: Mapped[str | None] = mapped_column(Text, default=None)
     provider_message_id: Mapped[str | None] = mapped_column(String(200), default=None)
-    sqs_message_id: Mapped[str | None] = mapped_column(String(200), default=None, index=True)
+    broker_message_id: Mapped[str | None] = mapped_column(String(200), default=None, index=True)
     received_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
