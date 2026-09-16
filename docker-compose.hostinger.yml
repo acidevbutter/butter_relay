@@ -6,7 +6,7 @@ services:
   relay-api:
     build:
       context: .
-      dockerfile: Dockerfile.hostinger
+      dockerfile: docker/Dockerfile.api.hostinger
     environment:
       ENVIRONMENT: ${ENVIRONMENT:-staging}
       DATABASE_HOST: ${DATABASE_HOST}
@@ -14,7 +14,6 @@ services:
       DATABASE_USER: ${DATABASE_USER}
       DATABASE_PASSWORD: ${DATABASE_PASSWORD}
       DATABASE_NAME: ${DATABASE_NAME}
-      AWS_EMF_ENVIRONMENT: ${AWS_EMF_ENVIRONMENT:-Local}
       SESSION_SECRET: ${SESSION_SECRET}
       ALLOWED_RECIPIENT_DOMAINS: ${ALLOWED_RECIPIENT_DOMAINS:-}
       BUTTER_BLOB_BASE_URL: ${BUTTER_BLOB_BASE_URL:-}
@@ -40,7 +39,7 @@ services:
   relay-worker:
     build:
       context: .
-      dockerfile: Dockerfile.hostinger
+      dockerfile: docker/Dockerfile.worker.hostinger
     command: celery -A app.worker.celery_app:celery_app worker --loglevel=info
     environment:
       ENVIRONMENT: ${ENVIRONMENT:-staging}
@@ -49,7 +48,6 @@ services:
       DATABASE_USER: ${DATABASE_USER}
       DATABASE_PASSWORD: ${DATABASE_PASSWORD}
       DATABASE_NAME: ${DATABASE_NAME}
-      AWS_EMF_ENVIRONMENT: ${AWS_EMF_ENVIRONMENT:-Local}
       REDIS_URL: ${REDIS_URL}
       RELAY_QUEUE_NAME: ${RELAY_QUEUE_NAME:-relay-shared}
       ALLOWED_RECIPIENT_DOMAINS: ${ALLOWED_RECIPIENT_DOMAINS:-}

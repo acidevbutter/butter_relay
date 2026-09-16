@@ -1,18 +1,8 @@
 services:
-  # Local Redis, standing in for the same Redis instance that fronts prod/staging
-  # on Coolify -- the worker's Celery client code is identical either way, only
-  # REDIS_URL differs.
-  redis:
-    image: redis:7-alpine
-    profiles: ["dev"]
-    ports:
-      - "6379:6379"
-    networks:
-      default:
-      devbutter_shared:
-        aliases:
-          - redis
-
+  # Redis is not defined here -- it's global in infra/docker-compose.yml,
+  # aliased as `redis` on the shared `devbutter_shared` network for every
+  # app's worker to share. Bring it up first:
+  # `docker compose -f ../infra/docker-compose.yml up -d redis`.
   mailpit:
     image: axllent/mailpit:latest
     container_name: selolibertaria-mailpit
@@ -28,7 +18,9 @@ services:
       MAILPIT_WEB_LISTEN_ADDR: 0.0.0.0:8025
 
   api:
-    build: .
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.api
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     ports:
       - "8010:8000"
@@ -52,7 +44,9 @@ services:
           target: /app/alembic
 
   worker:
-    build: .
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.worker
     command: celery -A app.worker.celery_app:celery_app worker --loglevel=info
     env_file:
       - .env
