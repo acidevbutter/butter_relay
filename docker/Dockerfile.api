@@ -30,6 +30,6 @@ USER app
 EXPOSE 8000
 
 # Same image for both processes -- overridden via `command:` in docker-compose
-# (api: uvicorn, worker: python -m app.worker).
+# (api: uvicorn, worker: celery -A app.worker.celery_app:celery_app worker).
 ENTRYPOINT ["docker-entrypoint.sh"]
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

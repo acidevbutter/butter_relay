@@ -19,10 +19,13 @@ class Settings(BaseSettings):
     database_password: str = "relay"
     database_name: str = "relay"
 
-    # Celery broker + result backend. Shared Redis instance, but each app uses
-    # its own queue name to avoid collisions -- see devbutter_backend's
-    # RELAY_QUEUE_NAME, which must match this one for jobs to be picked up.
-    redis_url: str = ""
+    # Celery broker/result backend. Same Redis instance the worker (celery -A
+    # app.worker.celery_app worker) and the API share -- devbutter_backend and
+    # selolibertaria_backend publish onto RELAY_QUEUE_NAME with their own
+    # Celery client pointed at this same URL (same env var name as their own
+    # settings, for consistency). Left pointing at the local docker-compose
+    # `redis` service for dev.
+    redis_url: str = "redis://redis:6379/0"
     relay_queue_name: str = "relay-shared"
 
     brevo_api_key: str = ""

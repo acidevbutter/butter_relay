@@ -1,12 +1,12 @@
-# Coolify staging: API + worker on the shared coolify network.
-# Same image, same database `relay`. Redis (Celery broker) is a separate
-# Coolify-managed resource -- see infra/coolify/docker-compose.deps.yml.
+# Coolify staging/prod: API + worker on the shared coolify network.
+# Same image, same database `relay`. Redis lives in devbutter-staging-deps
+# (or wherever REDIS_URL points -- a Coolify-managed Redis resource).
 
 services:
   relay-api:
     build:
       context: .
-      dockerfile: docker/Dockerfile.api.hostinger
+      dockerfile: Dockerfile.hostinger
     environment:
       ENVIRONMENT: ${ENVIRONMENT:-staging}
       DATABASE_HOST: ${DATABASE_HOST}
@@ -40,7 +40,7 @@ services:
   relay-worker:
     build:
       context: .
-      dockerfile: docker/Dockerfile.worker.hostinger
+      dockerfile: Dockerfile.hostinger
     command: celery -A app.worker.celery_app:celery_app worker --loglevel=info
     environment:
       ENVIRONMENT: ${ENVIRONMENT:-staging}

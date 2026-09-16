@@ -12,7 +12,7 @@ class MessageCreate(BaseModel):
     template_id: uuid.UUID | None = None
     to_email: str
     payload: dict[str, Any] = {}
-    sqs_message_id: str | None = None
+    broker_message_id: str | None = None
 
 
 class MessageRead(BaseModel):
@@ -29,6 +29,6 @@ class MessageRead(BaseModel):
     attempts: int
     last_error: str | None
     provider_message_id: str | None
-    sqs_message_id: str | None
+    broker_message_id: str | None
     received_at: datetime
     sent_at: datetime | None

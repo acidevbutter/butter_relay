@@ -29,9 +29,9 @@ class MessageRepository:
     async def get(self, message_id: uuid.UUID) -> Message | None:
         return await self.session.get(Message, message_id)
 
-    async def get_by_sqs_message_id(self, sqs_message_id: str) -> Message | None:
+    async def get_by_broker_message_id(self, broker_message_id: str) -> Message | None:
         result = await self.session.execute(
-            select(Message).where(Message.sqs_message_id == sqs_message_id)
+            select(Message).where(Message.broker_message_id == broker_message_id)
         )
         return result.scalar_one_or_none()
 
