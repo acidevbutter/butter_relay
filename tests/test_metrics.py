@@ -1,14 +1,14 @@
+import json
+import logging
 from typing import NoReturn
 from unittest.mock import AsyncMock
 
 import httpx
 import pytest
-from aws_embedded_metrics.config import get_config
 from starlette.requests import Request
 
 from app.core.email_provider import BrevoEmailProvider, EmailSendError
 from app.core.metrics import (
-    LOG_GROUP_NAME,
     NAMESPACE,
     SERVICE_NAME,
     configure_metrics,
@@ -18,63 +18,78 @@ from app.core.metrics import (
 )
 
 
-class FakeMetricsLogger:
-    def __init__(self) -> None:
-        self.namespace = ""
-        self.dimension_sets: tuple[dict[str, str], ...] = ()
-        self.metrics: list[tuple[str, float, str]] = []
+def test_helpers_and_configuration() -> None:
+    request = Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/api/v1/projects/abc",
+            "headers": [],
+            "route": type("Route", (), {"path": "/api/v1/projects/{project_id}"})(),
+        }
+    )
+    unmatched_request = Request({"type": "http", "method": "GET", "path": "/nope", "headers": []})
 
-    def set_namespace(self, namespace: str) -> None:
-        self.namespace = namespace
+    configure_metrics()
 
-    def set_dimensions(self, *dimension_sets: dict[str, str]) -> None:
-        self.dimension_sets = dimension_sets
-
-    def put_metric(self, name: str, value: float, unit: str) -> None:
-        self.metrics.append((name, value, unit))
-
-    async def flush(self) -> None:
-        return None
+    assert route_template(request) == "/api/v1/projects/{project_id}"
+    assert route_template(unmatched_request) == "unmatched"
+    assert status_class(503) == "5xx"
 
 
-async def test_emit_metrics_sets_namespace_and_safe_dimensions(
-    monkeypatch: pytest.MonkeyPatch,
+async def test_emit_metrics_writes_one_json_line(caplog: pytest.LogCaptureFixture) -> None:
+    with caplog.at_level(logging.INFO, logger="metrics"):
+        await emit_metrics(
+            [("RequestCount", 1, "Count")],
+            {"Method": "GET", "Route": "/api/v1/projects/{project_id}", "StatusClass": "2xx"},
+        )
+
+    assert len(caplog.records) == 1
+    payload = json.loads(caplog.records[0].message)
+    assert payload["service.name"] == SERVICE_NAME
+    assert payload["metric.namespace"] == NAMESPACE
+    assert payload["environment"] == "development"
+    assert payload["Method"] == "GET"
+    assert payload["Route"] == "/api/v1/projects/{project_id}"
+    assert payload["StatusClass"] == "2xx"
+    assert payload["RequestCount"] == 1
+    assert payload["RequestCount.unit"] == "Count"
+
+
+async def test_emit_metrics_without_dimensions(caplog: pytest.LogCaptureFixture) -> None:
+    with caplog.at_level(logging.INFO, logger="metrics"):
+        await emit_metrics([("HealthCheckFailure", 1, "Count")])
+
+    payload = json.loads(caplog.records[0].message)
+    assert payload["HealthCheckFailure"] == 1
+    assert payload["HealthCheckFailure.unit"] == "Count"
+
+
+async def test_emit_metrics_failure_does_not_raise(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
     import app.core.metrics as metrics_module
 
-    fake_logger = FakeMetricsLogger()
-    monkeypatch.setattr(metrics_module, "create_metrics_logger", lambda: fake_logger)
+    def _boom(*_args: object, **_kwargs: object) -> NoReturn:
+        raise RuntimeError("stdout unavailable")
 
-    await emit_metrics(
-        [("RequestCount", 1, "Count")],
-        {"Method": "GET", "Route": "/api/v1/projects/{project_id}", "StatusClass": "2xx"},
-    )
+    monkeypatch.setattr(metrics_module, "_metrics_logger", type("_Boom", (), {"info": _boom})())
 
-    assert fake_logger.namespace == NAMESPACE
-    assert fake_logger.dimension_sets == (
-        {"Environment": "development", "Service": SERVICE_NAME},
-        {
-            "Environment": "development",
-            "Service": SERVICE_NAME,
-            "Method": "GET",
-            "Route": "/api/v1/projects/{project_id}",
-            "StatusClass": "2xx",
-        },
-    )
-    assert fake_logger.metrics == [("RequestCount", 1, "Count")]
-    serialized_dimensions = str(fake_logger.dimension_sets)
-    assert "@" not in serialized_dimensions
-    assert "CN=" not in serialized_dimensions
+    with caplog.at_level(logging.ERROR):
+        await emit_metrics([("RequestCount", 1, "Count")])
+
+    assert "failed to emit metrics" in caplog.text
 
 
-async def test_metric_flush_failure_does_not_break_request(
+async def test_metric_emit_failure_does_not_break_request(
     client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     import app.core.metrics as metrics_module
 
-    fake_logger = FakeMetricsLogger()
-    fake_logger.flush = AsyncMock(side_effect=OSError("stdout unavailable"))  # type: ignore[method-assign]
-    monkeypatch.setattr(metrics_module, "create_metrics_logger", lambda: fake_logger)
+    def _boom(*_args: object, **_kwargs: object) -> NoReturn:
+        raise RuntimeError("stdout unavailable")
+
+    monkeypatch.setattr(metrics_module, "_metrics_logger", type("_Boom", (), {"info": _boom})())
 
     response = await client.get("/health")
 
@@ -103,25 +118,17 @@ async def test_readiness_reports_database_failure_and_metric(
     emit_mock.assert_awaited_once_with([("HealthCheckFailure", 1, "Count")])
 
 
-def test_helpers_and_configuration() -> None:
-    request = Request(
-        {
-            "type": "http",
-            "method": "GET",
-            "path": "/api/v1/projects/abc",
-            "headers": [],
-            "route": type("Route", (), {"path": "/api/v1/projects/{project_id}"})(),
-        }
-    )
+async def test_request_emits_one_metrics_event_without_breaking_response(
+    client: httpx.AsyncClient, caplog: pytest.LogCaptureFixture
+) -> None:
+    with caplog.at_level(logging.INFO, logger="metrics"):
+        response = await client.get("/health")
 
-    configure_metrics()
-
-    config = get_config()
-    assert config.namespace == NAMESPACE
-    assert config.service_name == SERVICE_NAME
-    assert config.log_group_name == LOG_GROUP_NAME
-    assert route_template(request) == "/api/v1/projects/{project_id}"
-    assert status_class(503) == "5xx"
+    assert response.status_code == 200
+    metric_records = [r for r in caplog.records if r.name == "metrics"]
+    assert len(metric_records) == 1
+    payload = json.loads(metric_records[0].message)
+    assert payload["RequestCount"] == 1
 
 
 @pytest.mark.parametrize("status_code", [400, 500])

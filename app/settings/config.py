@@ -19,14 +19,11 @@ class Settings(BaseSettings):
     database_password: str = "relay"
     database_name: str = "relay"
 
-    aws_region: str = "us-east-1"
-    sqs_queue_url: str = ""
-    # Set only for local dev, pointed at the ElasticMQ container. Left unset on AWS
-    # so boto3 talks to real SQS.
-    sqs_endpoint_url: str | None = None
-    sqs_wait_time_seconds: int = 20
-    sqs_max_messages: int = 10
-    sqs_visibility_timeout: int = 60
+    # Celery broker + result backend. Shared Redis instance, but each app uses
+    # its own queue name to avoid collisions -- see devbutter_backend's
+    # RELAY_QUEUE_NAME, which must match this one for jobs to be picked up.
+    redis_url: str = ""
+    relay_queue_name: str = "relay-shared"
 
     brevo_api_key: str = ""
     allowed_recipient_domains: str = ""

@@ -1,4 +1,4 @@
-# `docker build -f Dockerfile.hostinger .` — excludes local secrets and tests.
+# `docker build -f docker/Dockerfile.api.hostinger .` — excludes local secrets and tests.
 .git
 .env
 .env.*

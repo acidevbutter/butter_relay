@@ -1,9 +1,9 @@
 # Butter Relay
 
-DevButter's company-wide, multi-tenant transactional email service. Apps publish "send this email" jobs to an SQS queue; Butter Relay consumes them, renders a versioned Jinja2 template, dispatches through Brevo, and logs every attempt. A server-rendered admin dashboard lets the team manage projects, API keys, templates, and the message log without touching the database directly.
+DevButter's company-wide, multi-tenant transactional email service. Apps publish "send this email" jobs onto a shared Celery queue (Redis broker); Butter Relay's worker consumes them, renders a versioned Jinja2 template, dispatches through Brevo, and logs every attempt. A server-rendered admin dashboard lets the team manage projects, API keys, templates, and the message log without touching the database directly.
 
 - **Multi-tenant**: one deployment serves every DevButter app/client (Crate Diggr, Orbit, GranAI, client sites, ...), each scoped as a `Project`.
-- **Queue-driven**: AWS SQS in production, [ElasticMQ](https://github.com/softwaremill/elasticmq) (SQS-API-compatible) in local dev — same `boto3` client code either way.
+- **Queue-driven**: [Celery](https://docs.celeryq.dev/) task `butter_relay.process_message` on queue `relay-shared`, Redis as broker and result backend — one instance shared with every producer (see `devbutter_backend/app/core/clients/relay_client.py`).
 - **Email-only for now**: `Message.channel` defaults to `"email"` and is reserved for a future `in_app`/`push` channel, but no other delivery mechanism is built.
 - **Provider**: [Brevo](https://www.brevo.com/) today, behind an `EmailProvider` protocol. Amazon SES is the documented next implementation (IAM-authenticated, no separate API key) since deployment targets AWS.
 - **Dashboard**: FastAPI + Jinja2 + HTMX, same Docker image and service layer as the API — no separate frontend build.
@@ -24,10 +24,10 @@ flowchart LR
     end
 
     subgraph AWS["AWS"]
-        SQS[("SQS queue(s)\nshared queue,\nproject_id attribute")]
+        Redis[("Redis\nCelery broker + result backend,\nqueue relay-shared")]
         subgraph ECS["ECS Fargate"]
             API["butter_relay API\n(FastAPI: /admin dashboard,\n/api/v1 endpoints; auth guard not wired)"]
-            Worker["butter_relay worker\n(SQS long-poll consumer,\nsame image, different CMD)"]
+            Worker["butter_relay worker\n(celery -A app.worker.celery_app:celery_app worker,\nsame image, different CMD)"]
         end
         RDS[("RDS Postgres\nprojects, api_keys,\ntemplates, messages,\nadmin_users")]
         SM["Secrets Manager\nDB creds, Brevo key,\nsession secret"]
@@ -36,13 +36,13 @@ flowchart LR
     Brevo[("Brevo\nemail API")]
     Admin["DevButter admin\n(browser)"]
 
-    A1 -- "SendMessage (IAM)" --> SQS
-    A2 -- "SendMessage (IAM)" --> SQS
-    A3 -- "SendMessage (IAM)" --> SQS
-    SQS -- "long-poll ReceiveMessage" --> Worker
+    A1 -- "send_task(butter_relay.process_message)" --> Redis
+    A2 -- "send_task(butter_relay.process_message)" --> Redis
+    A3 -- "send_task(butter_relay.process_message)" --> Redis
+    Redis -- "consume relay-shared queue" --> Worker
     Worker -- "render template + send" --> Brevo
     Worker -- "write Message row" --> RDS
-    Worker -- "DeleteMessage on success\n(else retry -> DLQ after N)" --> SQS
+    Worker -- "ack on success\n(else autoretry with backoff, up to 5x)" --> Redis
     Admin -- "HTTPS (session cookie)" --> API
     API -- "read/write" --> RDS
     API -. reads secrets .-> SM
@@ -54,14 +54,13 @@ flowchart LR
 ```mermaid
 sequenceDiagram
     participant App as Producer app
-    participant SQS as SQS queue
+    participant Redis as Redis (Celery broker)
     participant W as Relay worker
     participant DB as Postgres
     participant Brevo as Brevo API
 
-    App->>SQS: SendMessage(project_id attribute, template_key, to, payload)
-    W->>SQS: ReceiveMessage (long poll)
-    SQS-->>W: message + ReceiptHandle
+    App->>Redis: send_task(butter_relay.process_message,<br/>project_id, template_key, to, payload)
+    Redis-->>W: task delivered (queue relay-shared)
     W->>DB: load Project + active Template
     W->>DB: insert Message(status=pending)
     W->>W: validate schema and render subject/html
@@ -70,11 +69,11 @@ sequenceDiagram
     alt success
         Brevo-->>W: 201 + provider_message_id
         W->>DB: update Message(status=sent)
-        W->>SQS: DeleteMessage
+        W->>Redis: ack (task SUCCESS)
     else failure
         Brevo-->>W: error
         W->>DB: update Message(status=failed, last_error)
-        Note over W,SQS: retry creates another Message row;<br/>DLQ requires external redrive policy
+        Note over W,Redis: autoretry with backoff (up to 5x);<br/>each retry creates another Message row;<br/>task ends FAILURE after max_retries, no DLQ
     end
 ```
 
@@ -93,7 +92,7 @@ erDiagram
         uuid id PK
         string name
         string slug UK
-        string sqs_queue_url
+        string sqs_queue_url "legacy, unused since the Celery migration"
         string default_sender_email
         string default_sender_name
         bool is_active
@@ -142,7 +141,7 @@ erDiagram
 |---|---|
 | Framework | FastAPI (async), Poetry-managed |
 | Persistence | SQLAlchemy 2.0 (async) + Alembic, Postgres |
-| Queue | AWS SQS (prod) / ElasticMQ (local dev), via `boto3` |
+| Queue | Celery, Redis broker + result backend (shared with producers) |
 | Templates | Jinja2 `SandboxedEnvironment` (template bodies are user-authored content) |
 | Email provider | Brevo (`core/email_provider.py`, `EmailProvider` protocol) |
 | Dashboard | Jinja2 + HTMX, session-cookie auth (`bcrypt` + `itsdangerous`) |
@@ -163,7 +162,7 @@ app/
 ├── messages/                  # one row per send attempt = the email log
 ├── auth/                       # AdminUser, login/logout, session dependency
 ├── admin/                       # Jinja2+HTMX dashboard (router.py + templates/)
-└── worker/                       # SQS consumer entrypoint (python -m app.worker)
+└── worker/                       # celery_app.py (Celery app) + tasks.py (process_message task)
 alembic/                    # migrations
 docs/diagrams/              # .mmd sources for the diagrams above
 scripts/curl_smoke_test.sh  # end-to-end curl smoke test
@@ -185,9 +184,9 @@ Each domain package (`projects`, `api_keys`, `templates_`, `messages`, `auth`) f
 cp .env.example .env
 ```
 
-The shared development PostgreSQL is started by `../infra/docker-compose.yml` as `shared-postgres`.
-The defaults already point at `shared-postgres` and `elasticmq`. Set `BREVO_API_KEY` if you want real
-sends instead of an expected `401`.
+The shared development PostgreSQL and Redis are started by `../infra/docker-compose.yml` as
+`shared-postgres` and `redis`. The defaults already point at both. Set `BREVO_API_KEY` if you want
+real sends instead of an expected `401`.
 
 ### 3. Bring up the stack
 
@@ -195,15 +194,14 @@ sends instead of an expected `401`.
 docker compose --profile dev up -d --build
 ```
 
-The shared development PostgreSQL is started from `../infra/docker-compose.yml`. This stack starts
-the ElasticMQ, API, and worker containers:
+The shared development PostgreSQL and Redis are started from `../infra/docker-compose.yml`
+(`shared-postgres`, `redis`). This stack starts the API, worker, and mailpit containers:
 
 | Service | Purpose | Local port |
 |---|---|---|
-| `elasticmq` | SQS-compatible queue for local dev | `9324` |
 | `mailpit` | SMTP server and web UI for local emails | `1025`, `8025` |
 | `api` | FastAPI app (dashboard + JSON API), auto-reload | `8010` → `8000` |
-| `worker` | SQS long-poll consumer | — |
+| `worker` | Celery worker consuming the `relay-shared` queue | — |
 
 Check everything is up:
 
@@ -248,26 +246,31 @@ asyncio.run(main())
 
 Open [http://localhost:8010/admin](http://localhost:8010/admin), sign in with the credentials from step 5, then:
 
-1. **Projects** → create a project (name, slug, `sqs_queue_url`, default sender). For local dev, an ElasticMQ queue URL looks like `http://elasticmq:9324/000000000000/relay-shared`.
+1. **Projects** → create a project (name, slug, `sqs_queue_url` — legacy field, unused since the Celery migration, any placeholder value works, default sender).
 2. Open the project → **Generate key** to create an API key (shown once — copy it).
 3. Still on the project page → **Publish new version** to create a template (Jinja2 `subject_template` + `html_template`, e.g. `Welcome, {{ name }}!`).
 4. **Messages** shows the log of every send attempt, with a filter by project/status and a **Resend** action on failed messages.
 
 ### 7. Send a test message through the queue
 
-Producer apps publish to SQS directly (IAM-authorized, not via the dashboard). To simulate one locally against ElasticMQ:
+Producer apps publish by calling `celery_app.send_task(...)` directly (not via the dashboard) —
+exactly what `devbutter_backend/app/core/clients/relay_client.py` does. To simulate one locally:
 
 ```bash
 PROJECT_ID="<uuid from step 6>"
 
 docker compose exec -T api python -c "
-import boto3, json
-sqs = boto3.client('sqs', region_name='us-east-1', endpoint_url='http://elasticmq:9324',
-                    aws_access_key_id='x', aws_secret_access_key='x')
-sqs.send_message(
-    QueueUrl='http://elasticmq:9324/000000000000/relay-shared',
-    MessageBody=json.dumps({'template_key': 'welcome_email', 'to': 'test@example.com', 'payload': {'name': 'Marcos'}}),
-    MessageAttributes={'project_id': {'StringValue': '$PROJECT_ID', 'DataType': 'String'}}
+from celery import Celery
+celery_app = Celery('smoke-test', broker='redis://redis:6379/0')
+celery_app.send_task(
+    'butter_relay.process_message',
+    kwargs={
+        'project_id': '$PROJECT_ID',
+        'template_key': 'welcome_email',
+        'to': 'test@example.com',
+        'payload': {'name': 'Marcos'},
+    },
+    queue='relay-shared',
 )
 "
 ```
@@ -278,7 +281,7 @@ Watch the worker pick it up:
 docker compose logs -f worker
 ```
 
-When the stack and dependencies are actually running, the message should appear in **/admin/messages** as `sent` (with a real `BREVO_API_KEY`) or `failed` (401, if unset). This exercises the local SQS → render → send → log path; it does not prove production readiness or exactly-once delivery.
+When the stack and dependencies are actually running, the message should appear in **/admin/messages** as `sent` (with a real `BREVO_API_KEY`) or `failed` (401, if unset). This exercises the local Celery → render → send → log path; it does not prove production readiness or exactly-once delivery.
 
 ### 8. Run the automated tests
 
@@ -287,7 +290,7 @@ poetry install
 poetry run pytest
 ```
 
-Covers: endpoint CRUD + `409` conflict cases for projects/templates, template versioning and JSON-schema payload validation, auth login/session flows, the `log_call`/`log_errors` decorators, and a worker unit test with mocked SQS/Brevo (success, provider failure, malformed message).
+Covers: endpoint CRUD + `409` conflict cases for projects/templates, template versioning and JSON-schema payload validation, auth login/session flows, the `log_call`/`log_errors` decorators, and worker task unit tests calling `process_message` directly with a mocked Brevo provider (success, provider failure, unknown project, blob-linked NFS-e template, duplicate task id, inactive project) — no live Celery/Redis needed.
 
 ### 9. Run the curl smoke test
 
@@ -306,33 +309,42 @@ Exercises the real HTTP surface end-to-end: health check, admin login/session, p
 | `DEBUG` | `false` | Relaxes cookie `Secure` flag when true |
 | `LOG_LEVEL` | `INFO` | |
 | `DATABASE_HOST` / `PORT` / `USER` / `PASSWORD` / `NAME` | `shared-postgres` / `5432` / `relay` | Pydantic monta `postgresql+asyncpg://` |
-| `AWS_REGION` | `us-east-1` | |
-| `SQS_QUEUE_URL` | — | Full queue URL the worker polls |
-| `SQS_ENDPOINT_URL` | — | Set for ElasticMQ locally; **unset on AWS** so `boto3` talks to real SQS |
+| `REDIS_URL` | — | Celery broker + result backend, e.g. `redis://redis:6379/0` |
+| `RELAY_QUEUE_NAME` | `relay-shared` | Must match every producer's queue name |
 | `BREVO_API_KEY` | — | Required for real sends |
 | `SESSION_SECRET` | dev-only placeholder | Set a real secret in production (Secrets Manager) |
 
-## Producer contract (SQS message shape)
+## Producer contract (Celery task shape)
 
-Body:
+Task name `butter_relay.process_message`, on queue `RELAY_QUEUE_NAME` (default `relay-shared`), kwargs:
 
-```json
-{
-  "template_key": "welcome_email",
-  "to": "user@example.com",
-  "payload": { "name": "Marcos" }
-}
+```python
+celery_app.send_task(
+    "butter_relay.process_message",
+    kwargs={
+        "project_id": "<uuid>",
+        "template_key": "welcome_email",
+        "to": "user@example.com",
+        "payload": {"name": "Marcos"},
+    },
+    queue="relay-shared",
+)
 ```
 
-Message attribute `project_id` (string UUID) identifies the tenant — this is how the worker resolves which `Project`/`Template` to use without a second auth hop. SQS access itself is authorized via IAM, not an API key.
+`project_id` (string UUID) identifies the tenant — this is how the worker resolves which
+`Project`/`Template` to use. It is **not authenticated**: any producer that can reach the shared
+Redis broker can claim any `project_id`. This is the same trust model the previous SQS transport
+had (see [`docs/butter-relay-fluxos.md`](docs/butter-relay-fluxos.md) finding H-02, still open).
+A producer never needs to import `butter_relay`'s own code — it only needs to match the task name,
+kwargs shape, and queue name by convention (see
+`devbutter_backend/app/core/clients/relay_client.py` for the reference producer).
 
 ## Deploying to AWS (shape, not IaC)
 
-- **ECS Fargate**: one service running `uvicorn app.main:app` (the API/dashboard), one running `python -m app.worker` — same image, different `command`.
+- **ECS Fargate**: one service running `uvicorn app.main:app` (the API/dashboard), one running `celery -A app.worker.celery_app:celery_app worker` — same image, different `command`.
 - **RDS Postgres** via `DATABASE_HOST` / `PORT` / `USER` / `PASSWORD` / `NAME`.
-- **SQS** with a redrive policy (`maxReceiveCount`) to a DLQ — dead-letter handling is infra-level; the app just leaves a message un-deleted on failure.
-- **Secrets Manager** for `DATABASE_*` credentials, `BREVO_API_KEY`, `SESSION_SECRET`.
-- Leave `SQS_ENDPOINT_URL` unset so `boto3` uses real SQS with the task's IAM role.
+- **Redis** (Celery broker/result backend) as a separate managed resource, shared with every producer — see `infra/coolify/docker-compose.deps.yml`. `autoretry_for=(Exception,)` with backoff (5 attempts) is the retry policy; there is no DLQ — a task that exhausts retries just ends in `FAILURE` state.
+- **Secrets Manager** for `DATABASE_*` credentials, `BREVO_API_KEY`, `SESSION_SECRET`, `REDIS_URL`.
 
 ## Roadmap notes
 

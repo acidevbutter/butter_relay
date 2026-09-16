@@ -22,6 +22,13 @@ class JsonFormatter(logging.Formatter):
     """
 
     def format(self, record: logging.LogRecord) -> str:
+        if record.name == "metrics":
+            # app.core.metrics.emit_metrics already renders a flat, complete
+            # JSON payload for New Relic ingestion -- wrapping it as this
+            # formatter's own "event"/"message" string would nest it inside
+            # another JSON object, hiding every metric field from New
+            # Relic's top-level-key auto-parsing.
+            return record.getMessage()
         # Imported lazily to avoid a hard import-time dependency from this
         # module (loaded very early, before settings are guaranteed ready)
         # on the rest of the app.

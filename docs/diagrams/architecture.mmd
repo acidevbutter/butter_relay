@@ -6,23 +6,21 @@ flowchart LR
 
     subgraph Relay["Butter Relay"]
         API["API FastAPI\n/admin + /api/v1\nJSON sem guarda atual"]
-        W["Worker\npython -m app.worker"]
+        W["Worker\ncelery -A app.worker.celery_app:celery_app worker"]
         DB[("Postgres\nprojects / api_keys / templates / messages")]
     end
 
-    Q[("SQS\nSQS_QUEUE_URL única\nproject_id no atributo")]
+    Q[("Redis\nCelery broker + backend\nqueue relay-shared\nproject_id no kwarg")]
     Brevo[("Brevo\nHTTPS API")]
     Browser["Administrador\ncookie de sessão"]
     Secrets["Segredos externos\nprevistos na documentação\nnão configurados neste repo"]
-    DLQ[("DLQ\nprevista em AWS\nsem configuração no checkout")]
 
-    P1 -- "SendMessage; project_id não autenticado" --> Q
+    P1 -- "send_task; project_id não autenticado" --> Q
     P2 -- "mesma permissão pode forjar project_id" --> Q
-    Q -- "ReceiveMessage" --> W
+    Q -- "consume relay-shared" --> W
     W -- "carrega projeto/template\ncria/atualiza Message" --> DB
     W -- "envia remetente + destinatário + HTML" --> Brevo
-    W -- "DeleteMessage só após sucesso" --> Q
-    Q -. "redrive após falhas\nse configurado" .-> DLQ
+    W -- "ack só após sucesso\n(senão autoretry, até 5x)" --> Q
     Browser -- "HTTPS + sessão assinada" --> API
     API -- "CRUD/listagem sem auth JSON" --> DB
     API -- "resend síncrono" --> Brevo
@@ -30,4 +28,4 @@ flowchart LR
     W -. "configuração prevista" .-> Secrets
 
     classDef risk fill:#5b1f2a,stroke:#f64c6f,color:#fff;
-    class API,Q,DLQ risk;
+    class API,Q risk;

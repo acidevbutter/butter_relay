@@ -4,6 +4,19 @@
 **Escopo:** checkout atual de `butter_relay`; análise estática de código, configuração, testes e documentação.  
 **Status:** não é prova de execução integrada, AWS, Postgres, SQS, DLQ, IAM, Secrets Manager ou Brevo.
 
+> **Nota de atualização (2026-09-16):** o transporte migrou de SQS (`app/worker/consumer.py`) para
+> Celery/Redis (`app/worker/celery_app.py`, `app/worker/tasks.py`) — `devbutter_backend` já
+> publicava nesse contrato e o worker deste repo não o implementava, causando perda silenciosa de
+> mensagens (`acidevbutter/butter_relay#10`). F4 e as referências a `SQS_QUEUE_URL`/`ReceiveMessage`/
+> `DeleteMessage` abaixo descrevem o transporte antigo; o mecanismo (long-poll → ack) e o formato
+> (`{template_key, to, payload}` + identificador de tenant) permanecem equivalentes via
+> `send_task("butter_relay.process_message", kwargs={project_id, template_key, to, payload})`.
+> H-03 (envio não idempotente) continua valendo, agora sobre o id da task Celery em vez do
+> `MessageId` do SQS. M-06, como descrita, já não procede: o consumidor sempre verificou
+> `project.is_active` (linha então em `app/worker/consumer.py:97-100`) — a parte de
+> `Project.sqs_queue_url` ser ignorada continua verdadeira e agora é permanente (campo legado, sem
+> substituto por-projeto). Ver `README.md` para a documentação viva do fluxo atual.
+
 ## Visão atual
 
 Diagramas:
