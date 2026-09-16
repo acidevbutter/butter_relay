@@ -1,42 +1,42 @@
-"""CloudWatch Embedded Metric Format helpers for Butter Relay."""
+"""Structured JSON metrics for New Relic log ingestion.
+
+Replaces the previous CloudWatch Embedded Metric Format (EMF) sink
+(``aws_embedded_metrics``). Metrics are written as single-line JSON via the
+standard ``logging`` module instead of the EMF wire format. This service
+already ships stdout through the ECS ``awslogs`` log driver -> CloudWatch
+Logs, so a CloudWatch Logs subscription forwarding to New Relic's log
+ingestion picks these lines up with no agent and no new dependency. New
+Relic auto-parses JSON log lines and promotes their top-level keys to
+queryable log attributes.
+"""
 
 from __future__ import annotations
 
+import json
 import logging
-import os
+import time
 from collections.abc import Mapping, Sequence
 
-from aws_embedded_metrics.config import get_config
-from aws_embedded_metrics.logger.metrics_logger_factory import create_metrics_logger
 from starlette.requests import Request
 
 from app.settings.config import settings
 
 logger = logging.getLogger(__name__)
+_metrics_logger = logging.getLogger("metrics")
 
 NAMESPACE = "DevButter/ButterRelay"
 SERVICE_NAME = "butter-relay"
-LOG_GROUP_NAME = "/ecs/devbutter/staging/relay"
 
 Metric = tuple[str, float, str]
 
 
 def configure_metrics() -> None:
-    """Configure EMF metadata for the relay's existing CloudWatch log group.
-
-    Forces the "Local" EMF environment (stdout sink) by default: this
-    architecture ships metrics via the ECS `awslogs` log driver -> CloudWatch
-    Logs auto-extraction, never a CloudWatch Agent sidecar. Without this
-    override the library's environment autodetection falls through to the
-    "Agent" sink (TCP to a nonexistent daemon), which drops every metric and
-    spams "Connection refused"/"Broken pipe" on every request, locally and in
-    production alike.
+    """No-op retained for main.py's startup call. Metrics used to ship via
+    CloudWatch Embedded Metric Format (aws_embedded_metrics), which needed a
+    get_config() singleton configured before the first emit; the New Relic
+    JSON sink below (see emit_metrics) carries no equivalent global state,
+    so there is nothing left to configure here.
     """
-    config = get_config()
-    config.namespace = NAMESPACE
-    config.service_name = SERVICE_NAME
-    config.log_group_name = LOG_GROUP_NAME
-    config.environment = os.getenv("AWS_EMF_ENVIRONMENT", "Local")
 
 
 def route_template(request: Request) -> str:
@@ -53,15 +53,28 @@ def status_class(status_code: int) -> str:
 async def emit_metrics(
     metrics: Sequence[Metric], dimensions: Mapping[str, str] | None = None
 ) -> None:
-    """Emit a metric batch without allowing telemetry failures to affect work."""
+    """Write one structured metric log line without allowing telemetry
+    failures to affect work.
+
+    This ships as a single JSON line via the standard `logging` module
+    instead of CloudWatch EMF: the same ECS `awslogs` -> CloudWatch Logs
+    pipeline this service already ships request logs through forwards to
+    New Relic's log ingestion, which auto-parses JSON log lines and promotes
+    their top-level keys to queryable log attributes -- no agent, no new
+    dependency.
+    """
     try:
-        metric_logger = create_metrics_logger()
-        metric_logger.set_namespace(NAMESPACE)
-        coarse_dimensions = {"Environment": settings.environment, "Service": SERVICE_NAME}
-        detailed_dimensions = {**coarse_dimensions, **(dimensions or {})}
-        metric_logger.set_dimensions(coarse_dimensions, detailed_dimensions)
+        payload: dict[str, object] = {
+            "timestamp": int(time.time() * 1000),
+            "message": "metric_emitted",
+            "service.name": SERVICE_NAME,
+            "environment": settings.environment,
+            "metric.namespace": NAMESPACE,
+            **(dimensions or {}),
+        }
         for name, value, unit in metrics:
-            metric_logger.put_metric(name, value, unit)
-        await metric_logger.flush()
+            payload[name] = value
+            payload[f"{name}.unit"] = unit
+        _metrics_logger.info(json.dumps(payload, default=str))
     except Exception:
-        logger.exception("failed to emit CloudWatch EMF metrics")
+        logger.exception("failed to emit metrics")

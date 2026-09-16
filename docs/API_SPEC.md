@@ -1,8 +1,8 @@
 # Relay API — especificação de navegação
 
 **Dono:** projetos multi-tenant, chaves de API, templates versionados e log de
-entrega. Envio é feito pelo worker SQS, não por uma rota HTTP. Contrato de
-campos e respostas: `/openapi.json` da instância.
+entrega. Envio é feito pelo worker Celery (`app/worker/tasks.py`), não por uma
+rota HTTP. Contrato de campos e respostas: `/openapi.json` da instância.
 
 ## Acesso
 
@@ -27,7 +27,8 @@ campos e respostas: `/openapi.json` da instância.
 
 ## Regras de integração
 
-- Produtores publicam `{template_key, to, payload}` em SQS com `project_id`;
+- Produtores chamam `celery_app.send_task("butter_relay.process_message",
+  kwargs={project_id, template_key, to, payload}, queue="relay-shared")`;
   o worker valida, renderiza Jinja2 e chama Brevo.
 - Template é versionado por projeto; não renderize template de outro projeto.
 - A chave em texto puro só aparece na criação; persista/compare somente hash.

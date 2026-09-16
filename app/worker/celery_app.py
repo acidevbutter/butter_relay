@@ -26,7 +26,7 @@ celery_app = Celery(
     include=["app.worker.tasks"],
 )
 celery_app.conf.update(
-    task_default_queue=settings.redis_queue_name,
+    task_default_queue=settings.relay_queue_name,
     task_acks_late=True,
     task_reject_on_worker_lost=True,
     worker_prefetch_multiplier=1,

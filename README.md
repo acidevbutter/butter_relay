@@ -309,7 +309,7 @@ Exercises the real HTTP surface end-to-end: health check, admin login/session, p
 | `LOG_LEVEL` | `INFO` | |
 | `DATABASE_HOST` / `PORT` / `USER` / `PASSWORD` / `NAME` | `shared-postgres` / `5432` / `relay` | Pydantic monta `postgresql+asyncpg://` |
 | `REDIS_URL` | `redis://redis:6379/0` | Celery broker + result backend; producers must point at this same instance |
-| `REDIS_QUEUE_NAME` | `relay-shared` | Celery queue the worker consumes from |
+| `RELAY_QUEUE_NAME` | `relay-shared` | Celery queue the worker consumes from |
 | `BREVO_API_KEY` | — | Required for real sends |
 | `SESSION_SECRET` | dev-only placeholder | Set a real secret in production |
 

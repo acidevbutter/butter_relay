@@ -21,11 +21,12 @@ class Settings(BaseSettings):
 
     # Celery broker/result backend. Same Redis instance the worker (celery -A
     # app.worker.celery_app worker) and the API share -- devbutter_backend and
-    # selolibertaria_backend publish onto REDIS_QUEUE_NAME with their own
-    # Celery client pointed at this same URL. Left pointing at the local
-    # docker-compose `redis` service for dev.
+    # selolibertaria_backend publish onto RELAY_QUEUE_NAME with their own
+    # Celery client pointed at this same URL (same env var name as their own
+    # settings, for consistency). Left pointing at the local docker-compose
+    # `redis` service for dev.
     redis_url: str = "redis://redis:6379/0"
-    redis_queue_name: str = "relay-shared"
+    relay_queue_name: str = "relay-shared"
 
     brevo_api_key: str = ""
     allowed_recipient_domains: str = ""

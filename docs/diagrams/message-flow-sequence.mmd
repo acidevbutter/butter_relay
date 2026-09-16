@@ -1,14 +1,12 @@
 sequenceDiagram
     participant App as Producer app
-    participant SQS as SQS queue
+    participant Redis as Redis (Celery broker)
     participant W as Relay worker
     participant DB as Postgres
     participant Brevo as Brevo API
 
-    App->>SQS: SendMessage(project_id attribute, template_key, to, payload)
-    W->>SQS: ReceiveMessage (long poll, one configured queue)
-    SQS-->>W: message + ReceiptHandle
-    W->>W: parse JSON and project_id attribute
+    App->>Redis: send_task(butter_relay.process_message,<br/>project_id, template_key, to, payload, queue=relay-shared)
+    Redis-->>W: task delivered
     W->>DB: load Project + active Template
     W->>DB: insert Message(status=pending)
     W->>W: validate schema and render subject/html
@@ -17,15 +15,15 @@ sequenceDiagram
     alt success
         Brevo-->>W: 201 + provider_message_id
         W->>DB: update Message(status=sent)
-        W->>SQS: DeleteMessage
-        Note over W,SQS: Crash before DeleteMessage causes redelivery and duplicate send.
+        W->>Redis: ack (task SUCCESS)
+        Note over W,Redis: Crash before ack causes redelivery (acks_late) and duplicate send.
     else failure
         Brevo-->>W: error
         W->>DB: update Message(status=failed, last_error)
-        Note over W,SQS: Message remains; retry creates another Message row.\nDLQ only exists if external redrive policy is configured.
+        Note over W,Redis: autoretry_for=(Exception,), backoff, up to 5x;\neach retry creates another Message row;\ntask ends FAILURE after max_retries, no DLQ.
     end
 
-    alt malformed or render/database error
-        W-->>W: exception outside handled classes may stop worker
-        Note over W,SQS: malformed input is not recorded before parse;\nrender failure can leave pending row.
+    alt unhandled exception (e.g. bad kwargs, DB error)
+        W-->>W: propagates out of process_message, same autoretry policy applies
+        Note over W,Redis: render failure can leave a pending Message row.
     end
