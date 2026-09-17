@@ -6,6 +6,7 @@ from app.api_keys.dependencies import CurrentApiKey
 from app.api_keys.models import ApiKey
 from app.core.exceptions import ForbiddenError
 from app.templates_.dependencies import TemplateServiceDep
+from app.templates_.models import Template
 from app.templates_.schemas import (
     TemplateCreate,
     TemplatePreviewRequest,
@@ -25,7 +26,7 @@ def _require_same_project(current_api_key: ApiKey, project_id: uuid.UUID) -> Non
 @router.get("/", response_model=list[TemplateRead], summary="List templates for a project")
 async def list_templates(
     project_id: uuid.UUID, current_api_key: CurrentApiKey, service: TemplateServiceDep
-) -> list[TemplateRead]:
+) -> list[Template]:
     _require_same_project(current_api_key, project_id)
     return await service.list_for_project(project_id)
 
@@ -38,7 +39,7 @@ async def list_templates(
 )
 async def publish_template(
     payload: TemplateCreate, current_api_key: CurrentApiKey, service: TemplateServiceDep
-) -> TemplateRead:
+) -> Template:
     _require_same_project(current_api_key, payload.project_id)
     return await service.publish(payload)
 
@@ -46,7 +47,7 @@ async def publish_template(
 @router.get("/{template_id}", response_model=TemplateRead, summary="Get a template")
 async def get_template(
     template_id: uuid.UUID, current_api_key: CurrentApiKey, service: TemplateServiceDep
-) -> TemplateRead:
+) -> Template:
     template = await service.get(template_id)
     _require_same_project(current_api_key, template.project_id)
     return template

@@ -1,0 +1,67 @@
+name: Backend quality
+
+on:
+  pull_request:
+  merge_group:
+  push:
+
+concurrency:
+  group: backend-quality-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    env:
+      # SessionMiddleware sets https_only=not settings.debug (see
+      # app/settings/middleware.py); the admin-session tests exercise the
+      # cookie over the test client's plain http:// base_url, same as
+      # .env.example's own DEBUG=true recommendation for local dev.
+      DEBUG: "true"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Poetry
+        run: pipx install poetry==1.8.3
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: poetry
+      - run: poetry install --no-root
+      - run: poetry run ruff check .
+      - run: poetry run mypy .
+      - run: poetry run pytest
+
+  migrations:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U test"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
+    env:
+      DATABASE_HOST: localhost
+      DATABASE_PORT: 5432
+      DATABASE_USER: test
+      DATABASE_PASSWORD: test
+      DATABASE_NAME: test
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Poetry
+        run: pipx install poetry==1.8.3
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: poetry
+      - run: poetry install --no-root
+      # Runs against a fresh database every time, so it catches broken
+      # revisions and multiple-heads conflicts before they reach Coolify.
+      - run: poetry run alembic upgrade head

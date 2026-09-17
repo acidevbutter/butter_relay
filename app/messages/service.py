@@ -26,8 +26,8 @@ class MessageService:
             raise NotFoundError(f"Message {message_id} not found")
         return message
 
-    async def get_by_sqs_message_id(self, sqs_message_id: str) -> Message | None:
-        return await self.repository.get_by_sqs_message_id(sqs_message_id)
+    async def get_by_broker_message_id(self, broker_message_id: str) -> Message | None:
+        return await self.repository.get_by_broker_message_id(broker_message_id)
 
     async def create(self, payload: MessageCreate) -> Message:
         return await self.repository.create(payload)

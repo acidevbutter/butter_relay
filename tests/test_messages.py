@@ -4,6 +4,8 @@ Full coverage of this module (payload rendering, resend, etc.) is tracked in
 docs/prompts/cobertura-testes-messages-api-keys.md.
 """
 
+import uuid
+
 from app.messages.models import Message
 from tests.conftest import create_project_and_api_key
 
@@ -21,8 +23,8 @@ async def test_list_messages_only_returns_own_project(client, db_session):
     project_id, key = await create_project_and_api_key(db_session, label="mine")
     other_project_id, _ = await create_project_and_api_key(db_session, label="other")
 
-    db_session.add(Message(project_id=project_id, to_email="a@example.com"))
-    db_session.add(Message(project_id=other_project_id, to_email="b@example.com"))
+    db_session.add(Message(project_id=uuid.UUID(project_id), to_email="a@example.com"))
+    db_session.add(Message(project_id=uuid.UUID(other_project_id), to_email="b@example.com"))
     await db_session.commit()
 
     response = await client.get("/api/v1/messages/", headers=_auth(key))
@@ -36,7 +38,7 @@ async def test_get_message_from_other_project_returns_403(client, db_session):
     project_id, key = await create_project_and_api_key(db_session, label="mine")
     other_project_id, other_key = await create_project_and_api_key(db_session, label="other")
 
-    message = Message(project_id=other_project_id, to_email="b@example.com")
+    message = Message(project_id=uuid.UUID(other_project_id), to_email="b@example.com")
     db_session.add(message)
     await db_session.commit()
     await db_session.refresh(message)

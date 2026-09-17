@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy import (
     JSON,
@@ -28,7 +29,7 @@ class Template(Base):
     key: Mapped[str] = mapped_column(String(150), index=True)
     subject_template: Mapped[str] = mapped_column(String(500))
     html_template: Mapped[str] = mapped_column(Text)
-    variables_schema: Mapped[dict] = mapped_column(JSON, default=dict)
+    variables_schema: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     version: Mapped[int] = mapped_column(Integer, default=1)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(

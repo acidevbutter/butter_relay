@@ -1,0 +1,69 @@
+# Coolify staging/prod: API + worker on the shared coolify network.
+# Same image, same database `relay`. Redis lives in devbutter-staging-deps
+# (or wherever REDIS_URL points -- a Coolify-managed Redis resource).
+
+services:
+  relay-api:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.api.hostinger
+    environment:
+      ENVIRONMENT: ${ENVIRONMENT:-staging}
+      DATABASE_HOST: ${DATABASE_HOST}
+      DATABASE_PORT: ${DATABASE_PORT:-5432}
+      DATABASE_USER: ${DATABASE_USER}
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD}
+      DATABASE_NAME: ${DATABASE_NAME}
+      SESSION_SECRET: ${SESSION_SECRET}
+      ALLOWED_RECIPIENT_DOMAINS: ${ALLOWED_RECIPIENT_DOMAINS:-}
+      BUTTER_BLOB_BASE_URL: ${BUTTER_BLOB_BASE_URL:-}
+      BUTTER_BLOB_API_KEY: ${BUTTER_BLOB_API_KEY}
+      BUTTER_BLOB_NAMESPACE: ${BUTTER_BLOB_NAMESPACE:-nfse}
+      BUTTER_BLOB_TIMEOUT_SECONDS: ${BUTTER_BLOB_TIMEOUT_SECONDS:-15}
+      BREVO_API_KEY: ${BREVO_API_KEY:-}
+    networks:
+      - coolify
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    expose:
+      - "8000"
+
+  relay-worker:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.worker.hostinger
+    command: celery -A app.worker.celery_app:celery_app worker --loglevel=info
+    environment:
+      ENVIRONMENT: ${ENVIRONMENT:-staging}
+      DATABASE_HOST: ${DATABASE_HOST}
+      DATABASE_PORT: ${DATABASE_PORT:-5432}
+      DATABASE_USER: ${DATABASE_USER}
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD}
+      DATABASE_NAME: ${DATABASE_NAME}
+      REDIS_URL: ${REDIS_URL}
+      RELAY_QUEUE_NAME: ${RELAY_QUEUE_NAME:-relay-shared}
+      ALLOWED_RECIPIENT_DOMAINS: ${ALLOWED_RECIPIENT_DOMAINS:-}
+      BUTTER_BLOB_BASE_URL: ${BUTTER_BLOB_BASE_URL:-}
+      BUTTER_BLOB_API_KEY: ${BUTTER_BLOB_API_KEY}
+      BUTTER_BLOB_NAMESPACE: ${BUTTER_BLOB_NAMESPACE:-nfse}
+      BUTTER_BLOB_TIMEOUT_SECONDS: ${BUTTER_BLOB_TIMEOUT_SECONDS:-15}
+      BREVO_API_KEY: ${BREVO_API_KEY:-}
+    networks:
+      - coolify
+    depends_on:
+      relay-api:
+        condition: service_healthy
+
+networks:
+  coolify:
+    external: true

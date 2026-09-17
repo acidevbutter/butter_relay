@@ -1,20 +1,8 @@
 services:
-  # SQS-API-compatible queue for local dev, so the worker's boto3 client code
-  # is identical here and on real AWS SQS -- only SQS_ENDPOINT_URL differs.
-  elasticmq:
-    image: softwaremill/elasticmq-native:1.5.7
-    profiles: ["dev"]
-    ports:
-      - "9324:9324"
-      - "9325:9325"
-    volumes:
-      - ./elasticmq.conf:/opt/elasticmq.conf:ro
-    networks:
-      default:
-      devbutter_shared:
-        aliases:
-          - elasticmq
-
+  # Redis is not defined here -- it's global in infra/docker-compose.yml,
+  # aliased as `redis` on the shared `devbutter_shared` network for every
+  # app's worker to share. Bring it up first:
+  # `docker compose -f ../infra/docker-compose.yml up -d redis`.
   mailpit:
     image: axllent/mailpit:latest
     container_name: selolibertaria-mailpit
@@ -30,20 +18,14 @@ services:
       MAILPIT_WEB_LISTEN_ADDR: 0.0.0.0:8025
 
   api:
-    build: .
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.api
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     ports:
       - "8010:8000"
     env_file:
       - .env
-    environment:
-      DATABASE_URL: postgresql+asyncpg://relay:relay@shared-postgres:5432/relay
-      SQS_ENDPOINT_URL: http://elasticmq:9324
-      # ElasticMQ doesn't check these, but boto3 refuses to sign a request with
-      # no credentials at all. On real AWS, the ECS task's IAM role supplies
-      # credentials automatically and these are never set/needed.
-      AWS_ACCESS_KEY_ID: local-dev
-      AWS_SECRET_ACCESS_KEY: local-dev
     volumes:
       - ./app:/app/app
       - ./alembic:/app/alembic
@@ -62,15 +44,14 @@ services:
           target: /app/alembic
 
   worker:
-    build: .
-    command: python -m app.worker
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.worker
+    command: celery -A app.worker.celery_app:celery_app worker --loglevel=info
     env_file:
       - .env
     environment:
-      DATABASE_URL: postgresql+asyncpg://relay:relay@shared-postgres:5432/relay
-      SQS_ENDPOINT_URL: http://elasticmq:9324
-      AWS_ACCESS_KEY_ID: local-dev
-      AWS_SECRET_ACCESS_KEY: local-dev
+      REDIS_URL: redis://redis:6379/0
     volumes:
       - ./app:/app/app
     networks:

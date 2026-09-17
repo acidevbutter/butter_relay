@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
@@ -10,8 +11,8 @@ class MessageCreate(BaseModel):
     project_id: uuid.UUID
     template_id: uuid.UUID | None = None
     to_email: str
-    payload: dict = {}
-    sqs_message_id: str | None = None
+    payload: dict[str, Any] = {}
+    broker_message_id: str | None = None
 
 
 class MessageRead(BaseModel):
@@ -22,12 +23,12 @@ class MessageRead(BaseModel):
     template_id: uuid.UUID | None
     channel: str
     to_email: str
-    payload: dict
+    payload: dict[str, Any]
     rendered_subject: str | None
     status: MessageStatus
     attempts: int
     last_error: str | None
     provider_message_id: str | None
-    sqs_message_id: str | None
+    broker_message_id: str | None
     received_at: datetime
     sent_at: datetime | None

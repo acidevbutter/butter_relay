@@ -24,19 +24,49 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
         try:
             response = await call_next(request)
         except Exception:
+            duration_ms = (time.perf_counter() - start) * 1000
+            # Exactly one completion event per request: this is the *only*
+            # log line emitted for a request that raises an unhandled
+            # exception. Deliberately excludes headers/body/payload -- this
+            # service relays webhooks/messages, so nothing here should ever
+            # carry secrets, tokens, or inbound payloads (see
+            # docs/prompts/redacao-dados-sensiveis-logs.md). exc_info carries
+            # the traceback for correlation; request_id ties it back to the
+            # client-visible X-Request-ID on the eventual error response.
             logger.exception(
-                "request %s failed: %s %s", request_id, request.method, request.url.path
+                "request failed: %s %s",
+                request.method,
+                route_template(request),
+                extra={
+                    "event": "request_failed",
+                    "request_id": request_id,
+                    "method": request.method,
+                    "route": route_template(request),
+                    "duration_ms": round(duration_ms, 1),
+                },
             )
             raise
         duration_ms = (time.perf_counter() - start) * 1000
         response.headers["X-Request-ID"] = request_id
+        route = route_template(request)
+        # Exactly one completion event per request: this is the only log line
+        # for a request that completes (successfully or with a handled error
+        # response). uvicorn's access log is quieted in logging_config.py so
+        # it cannot duplicate this line.
         logger.info(
-            "%s %s -> %s (%.1fms) [%s]",
+            "%s %s -> %s (%.1fms)",
             request.method,
-            request.url.path,
+            route,
             response.status_code,
             duration_ms,
-            request_id,
+            extra={
+                "event": "request_completed",
+                "request_id": request_id,
+                "method": request.method,
+                "route": route,
+                "status_code": response.status_code,
+                "duration_ms": round(duration_ms, 1),
+            },
         )
         metrics = [
             ("RequestCount", 1, "Count"),
@@ -50,7 +80,7 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
             metrics,
             {
                 "Method": request.method,
-                "Route": route_template(request),
+                "Route": route,
                 "StatusClass": status_class(response.status_code),
             },
         )

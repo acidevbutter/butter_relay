@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 import httpx
 
@@ -42,7 +42,7 @@ class BlobClient:
             raise ValidationFailedError(
                 f"butter_blob returned {response.status_code}",
             )
-        return response.json()
+        return cast(dict[str, Any], response.json())
 
 
 _client: BlobClient | None = None
