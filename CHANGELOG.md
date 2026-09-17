@@ -4,6 +4,13 @@ Registro retroativo baseado em todos os commits da branch `master`.
 
 ## Unreleased
 
+- Removida a dependência `aws-embedded-metrics` (não utilizada desde a
+  migração de `core/metrics.py` para logs JSON estruturados); `poetry.lock`
+  regenerado, removendo também `aiohttp` e suas dependências transitivas, que
+  só existiam por causa dela. Docstrings que ainda descreviam o pipeline
+  antigo (ECS `awslogs` → assinatura do CloudWatch Logs) foram corrigidas para
+  descrever o pipeline atual (stdout → New Relic `nrdot-collector` na VPS).
+
 - Logging de requisições HTTP passa a ser JSON estruturado (`timestamp`, `level`,
   `logger`, `event`, `service`, `environment`, `request_id`, `method`, `route`,
   `status_code`, `duration_ms`), com exatamente um evento de conclusão

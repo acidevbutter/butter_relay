@@ -29,7 +29,7 @@ de mensagens sem tocar no banco.
 | Templates | Jinja2 `SandboxedEnvironment` (corpo do template é conteúdo do usuário) |
 | Provider de e-mail | Brevo (`app/core/email_provider.py`, protocolo `EmailProvider`) |
 | Dashboard | Jinja2 + HTMX, auth por cookie de sessão (`bcrypt` + `itsdangerous`) |
-| Observabilidade | Métricas CloudWatch EMF (`aws-embedded-metrics`), readiness probe |
+| Observabilidade | Métricas em JSON estruturado (stdlib `logging`) ingeridas pelo New Relic, readiness probe |
 | Testes | `pytest` + `httpx.AsyncClient`, SQLite em memória; `moto` para SQS |
 | Lint/Type | `ruff` (E,F,I,UP,B,SIM), `mypy --strict` |
 
@@ -89,7 +89,7 @@ app/
 ├── settings/          # config.py (env via pydantic-settings), logging_config.py, middleware.py
 ├── core/              # dependencies.py (DbSession), decorators.py (log_call/log_errors),
 │                      # exceptions.py (handlers auto-registrados), email_provider.py,
-│                      # metrics.py (CloudWatch EMF), blob_client.py (Butter Blob / NFS-e)
+│                      # metrics.py (JSON estruturado → New Relic), blob_client.py (Butter Blob / NFS-e)
 ├── db/                # base.py, session.py, all_models.py (p/ autogenerate do Alembic)
 ├── projects/          # router/schemas/models/service/repository/dependencies
 ├── api_keys/          # credenciais por projeto (+ dep de auth CurrentApiKey)
@@ -203,9 +203,10 @@ template e validação de payload por JSON-schema, fluxos de login/sessão, deco
   pendências: autenticação nas rotas `/api/v1` (guard nem sempre fiado), idempotência SQS,
   classificação de erros do worker, `SESSION_SECRET` de produção, sandbox iframe no preview,
   redação de dados sensíveis nos logs, cobertura de testes messages/api_keys.
-- **Recente**: métricas CloudWatch EMF + readiness probe; DI refatorada por domínio;
-  resolução de NFS-e no blob ao enviar `nota_fiscal_emitida`; restrição de destinatários em
-  staging/preprod; Mailpit no Compose dev; deploy conjunto API+worker no Coolify staging.
+- **Recente**: migração das métricas de CloudWatch EMF para JSON estruturado ingerido pelo
+  New Relic; readiness probe; DI refatorada por domínio; resolução de NFS-e no blob ao enviar
+  `nota_fiscal_emitida`; restrição de destinatários em staging/preprod; Mailpit no Compose dev;
+  deploy conjunto API+worker no Coolify staging.
 - **Planejado**: provider Amazon SES (autenticado por IAM); canal in-app/push está
   explicitamente fora de escopo — `Message.channel` existe só para não exigir migração
   futura.

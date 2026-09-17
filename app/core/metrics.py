@@ -2,12 +2,12 @@
 
 Replaces the previous CloudWatch Embedded Metric Format (EMF) sink
 (``aws_embedded_metrics``). Metrics are written as single-line JSON via the
-standard ``logging`` module instead of the EMF wire format. This service
-already ships stdout through the ECS ``awslogs`` log driver -> CloudWatch
-Logs, so a CloudWatch Logs subscription forwarding to New Relic's log
-ingestion picks these lines up with no agent and no new dependency. New
-Relic auto-parses JSON log lines and promotes their top-level keys to
-queryable log attributes.
+standard ``logging`` module instead of the EMF wire format: this service's
+stdout is picked up by the New Relic OpenTelemetry collector (nrdot-collector)
+running on the host, which classifies log lines by their ``message`` field
+and routes metric events to New Relic's ``Log_metric`` partition -- no
+agent-side SDK, no new dependency. New Relic auto-parses JSON log lines and
+promotes their top-level keys to queryable log attributes.
 """
 
 from __future__ import annotations
@@ -57,10 +57,10 @@ async def emit_metrics(
     failures to affect work.
 
     This ships as a single JSON line via the standard `logging` module
-    instead of CloudWatch EMF: the same ECS `awslogs` -> CloudWatch Logs
-    pipeline this service already ships request logs through forwards to
-    New Relic's log ingestion, which auto-parses JSON log lines and promotes
-    their top-level keys to queryable log attributes -- no agent, no new
+    instead of CloudWatch EMF: this service's stdout is picked up by the New
+    Relic OpenTelemetry collector (nrdot-collector) running on the host, which
+    classifies log lines by their `message` field and routes metric events to
+    New Relic's `Log_metric` partition -- no agent-side SDK, no new
     dependency.
     """
     try:
