@@ -84,7 +84,13 @@ Prompt: [`docs/prompts/redacao-dados-sensiveis-logs.md`](prompts/redacao-dados-s
 `app/worker/consumer.py:103-116` usa somente `settings.sqs_queue_url` (global) e nunca lê
 `project.is_active`. Um projeto desativado continua tendo mensagens processadas e enviadas.
 
-Prompt: [`docs/prompts/respeitar-project-is-active-worker.md`](prompts/respeitar-project-is-active-worker.md).
+**Resolvido em 2026-09-17:** o worker (agora Celery, ver `app/worker/tasks.py:90-93`) já checava
+`project.is_active` desde a migração para Celery/Redis. `Project.sqs_queue_url` foi removido
+(`acidevbutter/butter_relay#16`) e substituído por uma fila por projeto real, derivada do `slug`
+(`Project.queue_name`), consumida dinamicamente — ver a nota de 2026-09-17 em
+`docs/butter-relay-fluxos.md`.
+
+Prompt: `docs/prompts/respeitar-project-is-active-worker.md` (removido -- resolvido pela mudança acima).
 
 ### 9. [NOVO] Sem cobertura de teste para os módulos `messages` e `api_keys`
 
@@ -123,6 +129,6 @@ Prompt: [`docs/prompts/classificar-erros-worker.md`](prompts/classificar-erros-w
 5. `session-secret-producao.md`
 6. `idempotencia-mensagens-sqs.md`
 7. `redacao-dados-sensiveis-logs.md`
-8. `respeitar-project-is-active-worker.md`
+8. ~~`respeitar-project-is-active-worker.md`~~ (removido, resolvido -- ver achado 8)
 9. `cobertura-testes-messages-api-keys.md`
 10. `classificar-erros-worker.md`

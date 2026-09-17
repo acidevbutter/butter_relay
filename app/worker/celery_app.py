@@ -20,12 +20,17 @@ celery_app = Celery(
     "butter_relay",
     broker=settings.redis_url,
     backend=settings.redis_url,
-    # Deferred import: app.worker.tasks is only loaded inside the worker
-    # process (`celery -A app.worker.celery_app:celery_app worker`), not by
-    # anything that merely imports this module for its Celery instance.
-    include=["app.worker.tasks"],
+    # Deferred import: app.worker.tasks/app.worker.queues are only loaded
+    # inside the worker process (`celery -A app.worker.celery_app:celery_app
+    # worker`), not by anything that merely imports this module for its
+    # Celery instance. app.worker.queues registers the worker_ready handler
+    # that seeds per-project queue consumers on boot (see that module).
+    include=["app.worker.tasks", "app.worker.queues"],
 )
 celery_app.conf.update(
+    # Fallback/default queue for producers that don't pass an explicit
+    # `queue=` -- per-project queues (see app.projects.models.Project.queue_name)
+    # are consumed dynamically, added via app.worker.queues.
     task_default_queue=settings.relay_queue_name,
     task_acks_late=True,
     task_reject_on_worker_lost=True,

@@ -1,20 +1,34 @@
+import re
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, EmailStr
+from pydantic import BaseModel, ConfigDict, EmailStr, field_validator
+
+_SLUG_PATTERN = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
+
+
+def _validate_slug(slug: str) -> str:
+    if not _SLUG_PATTERN.match(slug):
+        raise ValueError(
+            "slug must be lowercase alphanumeric segments separated by single hyphens "
+            "(it doubles as the project's Celery queue name)"
+        )
+    return slug
 
 
 class ProjectCreate(BaseModel):
     name: str
     slug: str
-    sqs_queue_url: str
+    external: bool = False
     default_sender_email: EmailStr
     default_sender_name: str
+
+    _validate_slug = field_validator("slug")(_validate_slug)
 
 
 class ProjectUpdate(BaseModel):
     name: str | None = None
-    sqs_queue_url: str | None = None
+    external: bool | None = None
     default_sender_email: EmailStr | None = None
     default_sender_name: str | None = None
     is_active: bool | None = None
@@ -26,7 +40,8 @@ class ProjectRead(BaseModel):
     id: uuid.UUID
     name: str
     slug: str
-    sqs_queue_url: str
+    external: bool
+    queue_name: str
     default_sender_email: str
     default_sender_name: str
     is_active: bool

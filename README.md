@@ -90,7 +90,7 @@ erDiagram
         uuid id PK
         string name
         string slug UK
-        string sqs_queue_url
+        bool external
         string default_sender_email
         string default_sender_name
         bool is_active
@@ -100,6 +100,7 @@ erDiagram
         uuid project_id FK
         string key_hash UK
         string label
+        datetime expires_at
         datetime revoked_at
         datetime last_used_at
     }
@@ -245,7 +246,10 @@ asyncio.run(main())
 
 Open [http://localhost:8010/admin](http://localhost:8010/admin), sign in with the credentials from step 5, then:
 
-1. **Projects** → create a project (name, slug, `sqs_queue_url`, default sender). For local dev, an ElasticMQ queue URL looks like `http://elasticmq:9324/000000000000/relay-shared`.
+1. **Projects** → create a project (name, slug, default sender, optional **External** checkbox).
+   Each project gets its own Celery queue derived from its slug (`relay-<slug>`, see
+   `Project.queue_name`) — no queue URL to type in. External projects' API keys expire 30 days
+   after creation; internal ones don't expire until revoked.
 2. Open the project → **Generate key** to create an API key (shown once — copy it).
 3. Still on the project page → **Publish new version** to create a template (Jinja2 `subject_template` + `html_template`, e.g. `Welcome, {{ name }}!`).
 4. **Messages** shows the log of every send attempt, with a filter by project/status and a **Resend** action on failed messages.
@@ -253,7 +257,10 @@ Open [http://localhost:8010/admin](http://localhost:8010/admin), sign in with th
 ### 7. Send a test message through the queue
 
 Producer apps publish by calling `send_task` against the shared Redis broker (not via the
-dashboard). To simulate one locally:
+dashboard). Each project has its own queue (`project.queue_name`, e.g. `relay-crate-diggr`) that
+the worker starts consuming automatically as soon as the project is created — no restart needed.
+The legacy `relay-shared` queue below still works for producers that haven't been updated to pass
+a per-project `queue=`. To simulate one locally:
 
 ```bash
 PROJECT_ID="<uuid from step 6>"

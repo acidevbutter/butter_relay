@@ -16,7 +16,7 @@ set -euo pipefail
 BASE_URL="${BASE_URL:-http://localhost:8010}"
 ADMIN_EMAIL="${ADMIN_EMAIL:-admin@devbutter.com}"
 ADMIN_PASSWORD="${ADMIN_PASSWORD:-change-me-please}"
-PROJECT_SLUG="${PROJECT_SLUG:-crate-diggr}"
+PROJECT_SLUG="${PROJECT_SLUG:-devbutter-project}"
 
 COOKIE_JAR="$(mktemp)"
 trap 'rm -f "$COOKIE_JAR"' EXIT
@@ -80,7 +80,7 @@ check "GET /admin (no session, redirect to login)" 303 "$code"
 # --- create (or reuse) a project via the JSON API ---------------------------
 create_resp=$(curl -s -w "\n%{http_code}" -X POST "$BASE_URL/api/v1/projects/" \
     -H "Content-Type: application/json" \
-    -d "{\"name\": \"Crate Diggr\", \"slug\": \"$PROJECT_SLUG\", \"sqs_queue_url\": \"http://elasticmq:9324/000000000000/relay-shared\", \"default_sender_email\": \"noreply@devbutter.com\", \"default_sender_name\": \"DevButter\"}")
+    -d "{\"name\": \"Crate Diggr\", \"slug\": \"$PROJECT_SLUG\", \"default_sender_email\": \"noreply@devbutter.com\", \"default_sender_name\": \"DevButter\"}")
 create_code=$(echo "$create_resp" | tail -1)
 create_body=$(echo "$create_resp" | sed '$d')
 

@@ -5,6 +5,7 @@ from app.core.exceptions import NotFoundError
 from app.projects.models import Project
 from app.projects.repository import ProjectRepository
 from app.projects.schemas import ProjectCreate, ProjectUpdate
+from app.worker.queues import add_consumer_for_project
 
 
 @log_errors
@@ -28,7 +29,9 @@ class ProjectService:
         return project
 
     async def create(self, payload: ProjectCreate) -> Project:
-        return await self.repository.create(payload)
+        project = await self.repository.create(payload)
+        add_consumer_for_project(project)
+        return project
 
     async def update(self, project_id: uuid.UUID, payload: ProjectUpdate) -> Project:
         project = await self.get(project_id)

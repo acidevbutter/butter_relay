@@ -3,6 +3,7 @@
 {% block content %}
 <p><a class="link" href="/admin/projects">&larr; Projects</a></p>
 <h1>{{ project.name }} <span class="muted">({{ project.slug }})</span></h1>
+<p class="muted">Queue: <code>{{ project.queue_name }}</code> &middot; {{ "external" if project.external else "internal" }} project</p>
 
 <div class="card">
     <h3>API keys</h3>
@@ -12,13 +13,14 @@
     </div>
     {% endif %}
     <table>
-        <thead><tr><th>Label</th><th>Last used</th><th>Status</th><th></th></tr></thead>
+        <thead><tr><th>Label</th><th>Last used</th><th>Expires</th><th>Status</th><th></th></tr></thead>
         <tbody>
         {% for k in api_keys %}
             <tr>
                 <td>{{ k.label }}</td>
                 <td class="muted">{{ k.last_used_at or "never" }}</td>
-                <td>{{ "revoked" if k.revoked_at else "active" }}</td>
+                <td class="muted">{{ k.expires_at or "never" }}</td>
+                <td>{{ "revoked" if k.revoked_at else ("expired" if k.expires_at and k.expires_at < now() else "active") }}</td>
                 <td>
                     {% if not k.revoked_at %}
                     <form method="post" action="/admin/projects/{{ project.id }}/api-keys/{{ k.id }}/revoke">
@@ -28,7 +30,7 @@
                 </td>
             </tr>
         {% else %}
-            <tr><td colspan="4" class="muted">No API keys yet.</td></tr>
+            <tr><td colspan="5" class="muted">No API keys yet.</td></tr>
         {% endfor %}
         </tbody>
     </table>

@@ -9,31 +9,32 @@
         <input type="text" name="name" required>
         <label>Slug</label>
         <input type="text" name="slug" required placeholder="crate-diggr">
-        <label>SQS queue URL</label>
-        <input type="text" name="sqs_queue_url" required placeholder="https://sqs.us-east-1.amazonaws.com/.../relay-shared">
         <label>Default sender email</label>
         <input type="email" name="default_sender_email" required>
         <label>Default sender name</label>
         <input type="text" name="default_sender_name" required>
+        <label><input type="checkbox" name="external" value="true"> External project (API key expires after 30 days)</label>
         <button type="submit">Create project</button>
     </form>
 </div>
 <div class="card">
     <table>
         <thead>
-            <tr><th>Name</th><th>Slug</th><th>Sender</th><th>Active</th><th></th></tr>
+            <tr><th>Name</th><th>Slug</th><th>Queue</th><th>Sender</th><th>External</th><th>Active</th><th></th></tr>
         </thead>
         <tbody>
         {% for p in projects %}
             <tr>
                 <td>{{ p.name }}</td>
                 <td><code>{{ p.slug }}</code></td>
+                <td><code>{{ p.queue_name }}</code></td>
                 <td>{{ p.default_sender_email }}</td>
+                <td>{{ "yes" if p.external else "no" }}</td>
                 <td>{{ "yes" if p.is_active else "no" }}</td>
                 <td><a class="link" href="/admin/projects/{{ p.id }}">Manage &rarr;</a></td>
             </tr>
         {% else %}
-            <tr><td colspan="5" class="muted">No projects yet.</td></tr>
+            <tr><td colspan="7" class="muted">No projects yet.</td></tr>
         {% endfor %}
         </tbody>
     </table>
