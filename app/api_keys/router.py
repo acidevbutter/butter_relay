@@ -37,7 +37,12 @@ async def create_api_key(
 ) -> ApiKeyCreated:
     _require_same_project(current_api_key, payload.project_id)
     api_key, plaintext_key = await service.create(payload.project_id, payload.label)
-    return ApiKeyCreated(id=api_key.id, label=api_key.label, plaintext_key=plaintext_key)
+    return ApiKeyCreated(
+        id=api_key.id,
+        label=api_key.label,
+        plaintext_key=plaintext_key,
+        expires_at=api_key.expires_at,
+    )
 
 
 @router.post("/{api_key_id}/revoke", response_model=ApiKeyRead, summary="Revoke an API key")

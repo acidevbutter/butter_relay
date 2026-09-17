@@ -56,15 +56,15 @@ async def create_project(
     service: ProjectServiceDep,
     name: Annotated[str, Form()],
     slug: Annotated[str, Form()],
-    sqs_queue_url: Annotated[str, Form()],
     default_sender_email: Annotated[str, Form()],
     default_sender_name: Annotated[str, Form()],
+    external: Annotated[bool, Form()] = False,
 ) -> HTMLResponse:
     await service.create(
         ProjectCreate(
             name=name,
             slug=slug,
-            sqs_queue_url=sqs_queue_url,
+            external=external,
             default_sender_email=default_sender_email,
             default_sender_name=default_sender_name,
         )

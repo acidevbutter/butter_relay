@@ -38,7 +38,6 @@ async def _seed_project_and_template(db_session: AsyncSession) -> uuid.UUID:
         ProjectCreate(
             name="Crate Diggr",
             slug="crate-diggr",
-            sqs_queue_url="http://elasticmq:9324/000000000000/relay-shared",
             default_sender_email="noreply@devbutter.com",
             default_sender_name="DevButter",
         )
@@ -145,7 +144,6 @@ async def _seed_nfse_template(db_session: AsyncSession) -> uuid.UUID:
         ProjectCreate(
             name="DevButter",
             slug="devbutter-nfse",
-            sqs_queue_url="http://elasticmq:9324/000000000000/relay-shared",
             default_sender_email="noreply@devbutter.com",
             default_sender_name="DevButter",
         )

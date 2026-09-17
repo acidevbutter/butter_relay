@@ -10,6 +10,19 @@ from app.main import app
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 
 
+@pytest.fixture(autouse=True)
+def _no_real_queue_broadcast(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Project creation broadcasts a `add_consumer` control message to Celery's
+    real Redis broker (see app.worker.queues.add_consumer_for_project). There's
+    no broker in the test environment, and each failed connection attempt is
+    slow (kombu retries before giving up) -- stub it out so project-creation
+    tests stay fast and don't depend on a running broker.
+    """
+    from celery.app.control import Control
+
+    monkeypatch.setattr(Control, "add_consumer", lambda self, *args, **kwargs: None)
+
+
 @pytest.fixture
 async def db_session():
     engine = create_async_engine(TEST_DATABASE_URL)
@@ -60,7 +73,7 @@ async def admin_client(client: AsyncClient, db_session: AsyncSession) -> AsyncCl
 
 
 async def create_project_and_api_key(
-    db_session: AsyncSession, label: str = "test-key"
+    db_session: AsyncSession, label: str = "test-key", external: bool = False
 ) -> tuple[str, str]:
     """Creates a project directly through the service layer (bypassing HTTP, same
     pattern as `admin_client` registering an admin user directly) and mints an API
@@ -77,11 +90,11 @@ async def create_project_and_api_key(
         ProjectCreate(
             name="Crate Diggr",
             slug=f"crate-diggr-{label}",
-            sqs_queue_url="http://elasticmq:9324/000000000000/relay-shared",
+            external=external,
             default_sender_email="noreply@devbutter.com",
             default_sender_name="DevButter",
         )
     )
-    api_key_service = ApiKeyService(ApiKeyRepository(db_session))
+    api_key_service = ApiKeyService(ApiKeyRepository(db_session), ProjectRepository(db_session))
     _, plaintext_key = await api_key_service.create(project.id, label)
     return str(project.id), plaintext_key

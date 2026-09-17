@@ -15,6 +15,7 @@ class ApiKeyCreated(BaseModel):
     id: uuid.UUID
     label: str
     plaintext_key: str
+    expires_at: datetime | None
 
 
 class ApiKeyRead(BaseModel):
@@ -23,6 +24,7 @@ class ApiKeyRead(BaseModel):
     id: uuid.UUID
     project_id: uuid.UUID
     label: str
+    expires_at: datetime | None
     revoked_at: datetime | None
     last_used_at: datetime | None
     created_at: datetime

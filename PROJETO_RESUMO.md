@@ -67,10 +67,12 @@ de mensagens sem tocar no banco.
 
 ## Modelo de dados
 
-- **PROJECT** (`id`, `name`, `slug` UK, `sqs_queue_url`, `default_sender_email`,
-  `default_sender_name`, `is_active`)
-- **API_KEY** (`id`, `project_id` FK, `key_hash` UK, `label`, `revoked_at`, `last_used_at`)
-  — chave em texto puro só aparece na criação; só o hash é persistido/comparado.
+- **PROJECT** (`id`, `name`, `slug` UK, `external`, `default_sender_email`,
+  `default_sender_name`, `is_active`) — a fila Celery do projeto é derivada do `slug`
+  (`relay-<slug>`, ver `Project.queue_name`), não é mais uma coluna.
+- **API_KEY** (`id`, `project_id` FK, `key_hash` UK, `label`, `expires_at`, `revoked_at`,
+  `last_used_at`) — chave em texto puro só aparece na criação; só o hash é persistido/comparado.
+  Projetos `external` recebem `expires_at` = criação + 30 dias; projetos internos não expiram.
 - **TEMPLATE** (`id`, `project_id` FK, `key`, `subject_template`, `html_template`,
   `variables_schema` JSON, `version`, `is_active`) — `(project_id, key, version)` é único;
   publicar nova versão desativa a anterior.
@@ -150,10 +152,8 @@ resolve `Project`/`Template` sem um segundo hop de auth. Acesso ao SQS é via IA
 | `DEBUG` | `false` | Relaxa a flag `Secure` do cookie quando `true` |
 | `LOG_LEVEL` | `INFO` | |
 | `DATABASE_URL` | `postgresql+asyncpg://relay:relay@shared-postgres:5432/relay` | |
-| `AWS_REGION` | `us-east-1` | |
-| `SQS_QUEUE_URL` | — | URL completa da fila que o worker consome |
-| `SQS_ENDPOINT_URL` | — | ElasticMQ localmente; **unset na AWS** |
-| `SQS_WAIT_TIME_SECONDS` / `SQS_MAX_MESSAGES` / `SQS_VISIBILITY_TIMEOUT` | `20` / `10` / `60` | tuning do long-poll |
+| `REDIS_URL` | `redis://redis:6379/0` | Broker/backend do Celery |
+| `RELAY_QUEUE_NAME` | `relay-shared` | Fila padrão/legada; cada projeto também tem a sua própria (`relay-<slug>`), consumida automaticamente |
 | `BREVO_API_KEY` | — | Necessária para envios reais (senão `401`) |
 | `ALLOWED_RECIPIENT_DOMAINS` | — | CSV; restringe destinatários em staging/preprod |
 | `BUTTER_BLOB_BASE_URL` / `BUTTER_BLOB_API_KEY` / `BUTTER_BLOB_NAMESPACE` | — / — / `nfse` | integração Butter Blob (resolução de NFS-e) |

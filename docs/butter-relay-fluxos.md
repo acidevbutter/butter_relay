@@ -16,6 +16,14 @@
 > `project.is_active` (linha então em `app/worker/consumer.py:97-100`) — a parte de
 > `Project.sqs_queue_url` ser ignorada continua verdadeira e agora é permanente (campo legado, sem
 > substituto por-projeto). Ver `README.md` para a documentação viva do fluxo atual.
+>
+> **Nota de atualização (2026-09-17):** M-06 agora está **resolvido**, não mais "permanente":
+> `Project.sqs_queue_url` foi removido (`acidevbutter/butter_relay#16`) e cada projeto passou a ter
+> sua própria fila Celery derivada do `slug` (`Project.queue_name`, `relay-<slug>`), consumida
+> automaticamente pelo worker via `app/worker/queues.py` (sem restart, via `add_consumer` +
+> seed em `worker_ready`). `relay-shared` permanece como fila padrão/legada para produtores ainda
+> não migrados. Também foi adicionado `Project.external` + `ApiKey.expires_at` (30 dias para
+> projetos externos) — ver `README.md`.
 
 ## Visão atual
 

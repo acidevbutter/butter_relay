@@ -9,10 +9,11 @@ from app.api_keys.repository import ApiKeyRepository
 from app.api_keys.service import ApiKeyService
 from app.core.dependencies import DbSession
 from app.core.exceptions import UnauthorizedError
+from app.projects.repository import ProjectRepository
 
 
 def get_api_key_service(db: DbSession) -> ApiKeyService:
-    return ApiKeyService(ApiKeyRepository(db))
+    return ApiKeyService(ApiKeyRepository(db), ProjectRepository(db))
 
 
 ApiKeyServiceDep = Annotated[ApiKeyService, Depends(get_api_key_service)]
@@ -32,7 +33,7 @@ async def get_current_api_key(
     plaintext_key = authorization.removeprefix("Bearer ").strip()
     if not plaintext_key:
         raise UnauthorizedError("Missing or malformed Authorization header")
-    service = ApiKeyService(ApiKeyRepository(db))
+    service = ApiKeyService(ApiKeyRepository(db), ProjectRepository(db))
     return await service.authenticate(plaintext_key)
 
 
