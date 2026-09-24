@@ -32,6 +32,17 @@ celery_app.conf.update(
     # `queue=` -- per-project queues (see app.projects.models.Project.queue_name)
     # are consumed dynamically, added via app.worker.queues.
     task_default_queue=settings.relay_queue_name,
+    # Celery's remote-control commands (control.add_consumer, etc., used by
+    # app.worker.queues to seed per-project queues) broadcast on a fanout
+    # exchange that defaults to the same name ("celery") for every Celery app.
+    # REDIS_URL is a broker shared with unrelated services (butter_blob,
+    # devbutter_backend, selolibertaria_backend), so an unscoped broadcast
+    # reaches their workers too -- they don't have butter_relay.process_message
+    # registered, so they grab and silently discard the message before this
+    # app's own worker gets it. A dedicated exchange name keeps these control
+    # commands scoped to butter_relay's own worker fleet; it does not affect
+    # task queues themselves (send_task(..., queue=...) is unrelated routing).
+    control_exchange="butter_relay.pidbox",
     task_acks_late=True,
     task_reject_on_worker_lost=True,
     worker_prefetch_multiplier=1,
