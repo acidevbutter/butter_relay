@@ -13,7 +13,7 @@ from fastapi.responses import HTMLResponse
 from app.admin.templating import templates
 from app.api_keys.dependencies import ApiKeyServiceDep
 from app.auth.dependencies import CurrentAdminUser
-from app.core.email_provider import BrevoEmailProvider, EmailSendError
+from app.core.email_provider import EmailSendError, get_email_provider
 from app.core.exceptions import ValidationFailedError
 from app.messages.dependencies import MessageServiceDep
 from app.messages.models import MessageStatus
@@ -289,7 +289,7 @@ async def resend_message(
         subject, html = message.rendered_subject or "", ""
 
     message = await message_service.mark_processing(message, subject)
-    provider = BrevoEmailProvider(api_key=settings.brevo_api_key)
+    provider = get_email_provider(settings)
     try:
         result = await provider.send(
             to=message.to_email,

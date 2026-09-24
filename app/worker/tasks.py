@@ -17,7 +17,7 @@ from typing import Any
 
 from app.core.blob_client import BlobClient, get_blob_client
 from app.core.decorators import log_call
-from app.core.email_provider import BrevoEmailProvider, EmailSendError
+from app.core.email_provider import EmailProvider, EmailSendError, get_email_provider
 from app.core.exceptions import NotFoundError, ValidationFailedError
 from app.core.metrics import emit_metrics
 from app.db.session import session_factory
@@ -61,7 +61,7 @@ async def process_message(
     template_key: str,
     to_email: str,
     payload: dict[str, Any] | None,
-    email_provider: BrevoEmailProvider,
+    email_provider: EmailProvider,
     blob_client: BlobClient | None = None,
 ) -> None:
     blob = blob_client or get_blob_client()
@@ -176,7 +176,7 @@ def process_message_task(
     with a bounded, backed-off retry that gives up loudly instead of
     spinning.
     """
-    email_provider = BrevoEmailProvider(api_key=settings.brevo_api_key)
+    email_provider = get_email_provider(settings)
     try:
         asyncio.run(
             process_message(
