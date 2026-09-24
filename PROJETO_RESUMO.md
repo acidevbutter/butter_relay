@@ -3,15 +3,16 @@
 ## Visão geral
 
 **Butter Relay** é o serviço transacional de e-mail multi-tenant da DevButter. Aplicações
-publicam jobs de "envie este e-mail" numa fila SQS; o Relay consome esses jobs, renderiza um
-template Jinja2 versionado, despacha via Brevo e registra cada tentativa. Um dashboard
-administrativo renderizado no servidor permite gerir projetos, API keys, templates e o log
-de mensagens sem tocar no banco.
+publicam jobs de "envie este e-mail" como tasks Celery numa fila Redis; o Relay consome essas
+tasks, renderiza um template Jinja2 versionado, despacha via Brevo e registra cada tentativa. Um
+dashboard administrativo renderizado no servidor permite gerir projetos, API keys, templates e o
+log de mensagens sem tocar no banco.
 
 - **Multi-tenant**: um único deploy atende todas as apps/clientes DevButter (Crate Diggr,
   Orbit, GranAI, sites de clientes, ...), cada um isolado como um `Project`.
-- **Orientado a fila**: AWS SQS em produção, ElasticMQ (compatível com a API SQS) em dev
-  local — o mesmo código `boto3` nos dois casos.
+- **Orientado a fila**: [Celery](https://docs.celeryq.dev/) com broker Redis, mesma instância
+  Redis em todo ambiente (gerenciada pelo Coolify) — sem emulação de fila por ambiente para
+  manter sincronizado com produção, ao contrário do setup ElasticMQ/SQS que este substituiu.
 - **Só e-mail por enquanto**: `Message.channel` tem default `"email"`, reservado para um
   futuro canal `in_app`/`push` (nenhum outro mecanismo de entrega implementado).
 - **Provider**: Brevo hoje, atrás do protocolo `EmailProvider`. Amazon SES é a próxima
@@ -25,30 +26,36 @@ de mensagens sem tocar no banco.
 |---|---|
 | Framework | FastAPI (async), gerenciado por Poetry, Python 3.12 |
 | Persistência | SQLAlchemy 2.0 (async) + Alembic, PostgreSQL (asyncpg) |
-| Fila | AWS SQS (prod) / ElasticMQ (dev local), via `boto3` |
+| Fila | Celery com broker/result backend Redis, uma fila por projeto (`relay-<slug>`) + fila legada `relay-shared` |
 | Templates | Jinja2 `SandboxedEnvironment` (corpo do template é conteúdo do usuário) |
 | Provider de e-mail | Brevo (`app/core/email_provider.py`, protocolo `EmailProvider`) |
 | Dashboard | Jinja2 + HTMX, auth por cookie de sessão (`bcrypt` + `itsdangerous`) |
 | Observabilidade | APM via OTLP/HTTP direto ao New Relic, stdout logfmt e readiness probe |
-| Testes | `pytest` + `httpx.AsyncClient`, SQLite em memória; `moto` para SQS |
+| Testes | `pytest` + `httpx.AsyncClient`, SQLite em memória; Celery/Brevo mockados nos testes do worker |
 | Lint/Type | `ruff` (E,F,I,UP,B,SIM), `mypy --strict` |
 
 ## Arquitetura e fluxo
 
 ### Fluxo de mensagem
 
-1. App produtora → `SendMessage` no SQS com body `{template_key, to, payload}` e atributo
-   `project_id` (UUID string). Acesso ao SQS é autorizado por **IAM**, não por API key.
-2. Worker faz long-poll `ReceiveMessage`.
+1. App produtora → `send_task("butter_relay.process_message", kwargs={project_id, template_key,
+   to, payload})` na fila do projeto (`relay-<slug>`, derivada do `slug` via
+   `Project.queue_name`/`queue_name_for`) ou na fila legada `relay-shared` para produtores ainda
+   não migrados.
+2. Worker Celery (`app/worker/tasks.py::process_message_task`) consome a task; o id da task
+   (`self.request.id`, estável entre retries) faz o papel de idempotência que o `MessageId` do
+   SQS fazia antes.
 3. Worker carrega `Project` + `Template` ativo do Postgres.
 4. Insere `Message(status=pending)`; valida schema e renderiza subject/html.
 5. `Message(status=processing, attempts += 1)`.
 6. Envia via Brevo.
-   - **Sucesso**: `Message(status=sent)` + `provider_message_id`, `DeleteMessage` no SQS.
-   - **Falha**: `Message(status=failed, last_error)`, mensagem SQS **não** é deletada →
-     visibility timeout expira e reprocessa; após `maxReceiveCount` a redrive policy do SQS
-     manda para a DLQ (nível de infra, não código da app).
-7. **Idempotência**: se já existe `Message` com o mesmo `sqs_message_id` e status `SENT`, o
+   - **Sucesso**: `Message(status=sent)` + `provider_message_id`; Celery confirma a task
+     (`acks_late=True`).
+   - **Falha**: `Message(status=failed, last_error)`; erros em `autoretry_for` (`NotFoundError`,
+     `EmailSendError`, `ValidationFailedError`) disparam retry com backoff exponencial
+     (`retry_backoff`, até `MAX_RETRIES=5`); payload malformado (`MalformedMessageError`) é
+     logado e descartado sem retry, já que não é transitório.
+7. **Idempotência**: se já existe `Message` com o mesmo `broker_message_id` e status `SENT`, o
    worker retorna sem reenviar.
 8. **Blob/NFS-e**: se `payload.blob_id` estiver presente, o worker resolve o `public_url` no
    Butter Blob e injeta em `cta_link` antes de renderizar.
@@ -57,13 +64,15 @@ de mensagens sem tocar no banco.
 
 ### Deploy (formato, não IaC)
 
-- **ECS Fargate** (ou Coolify/Hostinger em staging): um serviço rodando
-  `uvicorn app.main:app` (API/dashboard), outro rodando `python -m app.worker` — mesma
-  imagem, `command` diferente.
-- **RDS Postgres** para `DATABASE_URL`.
-- **SQS** com redrive policy → DLQ.
-- **Secrets Manager** para credenciais do DB, `BREVO_API_KEY`, `SESSION_SECRET`.
-- `SQS_ENDPOINT_URL` fica **unset** na AWS para o `boto3` usar o SQS real via IAM role.
+- **Coolify/Hostinger**: dois serviços (`relay-api` + `relay-worker`), mesma imagem Docker,
+  `command` diferente (`uvicorn app.main:app` vs `celery -A app.worker.celery_app:celery_app
+  worker`).
+- **Postgres** gerenciado pelo Coolify, via `DATABASE_HOST`/`PORT`/`USER`/`PASSWORD`/`NAME`.
+- **Redis** gerenciado pelo Coolify, via `REDIS_URL` — retries com backoff exponencial
+  (`autoretry_for`, `MAX_RETRIES` em `app/worker/tasks.py`) substituem a redrive-policy-para-DLQ
+  do SQS: uma task que falhou de vez vira `Message.status=failed` no Postgres, sem fila de
+  dead-letter separada — `/admin/messages` é onde olhar para envios travados.
+- Credenciais do DB, `BREVO_API_KEY` e `SESSION_SECRET` via variáveis de ambiente do Coolify.
 
 ## Modelo de dados
 
@@ -77,7 +86,7 @@ de mensagens sem tocar no banco.
   `variables_schema` JSON, `version`, `is_active`) — `(project_id, key, version)` é único;
   publicar nova versão desativa a anterior.
 - **MESSAGE** (`id`, `project_id` FK, `template_id` FK, `channel`, `to_email`, `payload`
-  JSON, `status`, `attempts`, `provider_message_id`, `sqs_message_id`) — uma linha por
+  JSON, `status`, `attempts`, `provider_message_id`, `broker_message_id`) — uma linha por
   tentativa de envio = o log de e-mail.
 - **ADMIN_USER** (`id`, `email` UK, `password_hash`)
 
@@ -99,7 +108,7 @@ app/
 ├── messages/          # log de envio (uma linha por tentativa)
 ├── auth/              # AdminUser, login/logout, dependência de sessão
 ├── admin/             # dashboard Jinja2+HTMX (router.py + templates/)
-└── worker/            # consumer SQS (python -m app.worker): __main__.py + consumer.py
+└── worker/            # worker Celery: celery_app.py, tasks.py, queues.py
 alembic/               # migrations
 docs/                  # API_SPEC.md, butter-relay-fluxos.md, auditoria de segurança, diagramas .mmd, prompts
 scripts/               # curl_smoke_test.sh, seed_nota_fiscal_template.py
@@ -130,19 +139,27 @@ Duas superfícies distintas (não confundir):
 | `GET /health/ready` | — | verifica o banco (503 se indisponível) |
 | `GET /` | — | redirect para `/admin` |
 
-Não há envio por rota HTTP — envio é sempre pelo worker SQS. Não há self-registration
+Não há envio por rota HTTP — envio é sempre pelo worker Celery. Não há self-registration
 público (API fechada); o primeiro admin é criado via container.
 
-## Contrato do produtor (mensagem SQS)
+## Contrato do produtor (task Celery)
 
-Body:
-
-```json
-{ "template_key": "welcome_email", "to": "user@example.com", "payload": { "name": "Marcos" } }
+```python
+celery_app.send_task(
+    "butter_relay.process_message",
+    kwargs={
+        "project_id": "...",       # UUID string do tenant
+        "template_key": "welcome_email",
+        "to": "user@example.com",
+        "payload": {"name": "Marcos"},
+    },
+    queue="relay-<slug>",  # fila do projeto; relay-shared para produtores legados
+)
 ```
 
-Atributo de mensagem `project_id` (UUID string) identifica o tenant — é assim que o worker
-resolve `Project`/`Template` sem um segundo hop de auth. Acesso ao SQS é via IAM.
+`project_id` identifica o tenant — é assim que o worker resolve `Project`/`Template` sem um
+segundo hop de auth. `devbutter_backend` e `selolibertaria_backend` publicam nesse mesmo
+contrato, com um cliente Celery próprio apontado para o mesmo `REDIS_URL`.
 
 ## Variáveis de ambiente
 
@@ -164,18 +181,18 @@ resolve `Project`/`Template` sem um segundo hop de auth. Acesso ao SQS é via IA
 
 ```bash
 cp .env.example .env
-docker compose --profile dev up -d --build      # elasticmq, mailpit, api, worker
+docker compose --profile dev up -d --build      # mailpit, api, worker
 docker compose exec api alembic upgrade head
 # criar primeiro admin via container (ver README §5)
 ```
 
 - API: http://localhost:8010 (dashboard em `/admin`)
 - Mailpit (UI de e-mail local): http://localhost:8025
-- Fila ElasticMQ local: `http://elasticmq:9324/000000000000/relay-shared`
 
-Serviços do Compose dev: `elasticmq` (9324), `mailpit` (1025/8025), `api` (8010→8000),
-`worker`. O PostgreSQL compartilhado (`shared-postgres`) vem do
-`../infra/docker-compose.yml` na rede externa `devbutter_shared`.
+Serviços do Compose dev: `mailpit` (1025/8025), `api` (8010→8000), `worker`. O Redis
+(broker/backend do Celery) e o PostgreSQL compartilhado (`shared-postgres`) vêm do
+`../infra/docker-compose.yml` na rede externa `devbutter_shared`, aliasado como `redis` para
+todo worker DevButter compartilhar a mesma instância.
 
 Arquivos Docker: `Dockerfile`, `Dockerfile.hostinger` (Coolify/Hostinger staging),
 `docker-compose.yml` (dev), `docker-compose.hostinger.yml` (staging: `relay-api` +
@@ -191,18 +208,18 @@ poetry run pytest
 
 Cobre: CRUD de endpoints + casos de conflito `409` (projects/templates), versionamento de
 template e validação de payload por JSON-schema, fluxos de login/sessão, decorators
-`log_call`/`log_errors`, métricas, e um teste unitário do worker com SQS/Brevo mockados
+`log_call`/`log_errors`, métricas, e um teste unitário do worker com Celery/Brevo mockados
 (sucesso, falha do provider, mensagem malformada).
 
 ## Estado e roadmap
 
 - **Versão**: `0.1.0` (2026-08-21). Sem tag Git.
-- **Não comprovado em produção**: IAM/DLQ/Secrets Manager/config do provider são o formato
-  pretendido, não prova do ambiente atual. A auditoria de segurança
+- **Não comprovado em produção**: IAM (para SES)/Secrets Manager/config do provider são o
+  formato pretendido, não prova do ambiente atual. A auditoria de segurança
   (`docs/auditoria-seguranca-2026-08-29.md`) e os prompts em `docs/prompts/` listam
-  pendências: autenticação nas rotas `/api/v1` (guard nem sempre fiado), idempotência SQS,
-  classificação de erros do worker, `SESSION_SECRET` de produção, sandbox iframe no preview,
-  redação de dados sensíveis nos logs, cobertura de testes messages/api_keys.
+  pendências: autenticação nas rotas `/api/v1` (guard nem sempre fiado), idempotência de
+  entrega (unicidade de `broker_message_id`), `SESSION_SECRET` de produção, sandbox iframe no
+  preview, redação de dados sensíveis nos logs, cobertura de testes messages/api_keys.
 - **Recente**: APM OpenTelemetry direto ao New Relic e stdout logfmt legível; readiness probe;
   DI refatorada por domínio; resolução de NFS-e no blob ao enviar
   `nota_fiscal_emitida`; restrição de destinatários em staging/preprod; Mailpit no Compose dev;
