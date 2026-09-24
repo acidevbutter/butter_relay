@@ -1,6 +1,7 @@
 import json
 import logging.config
 from datetime import UTC, datetime
+
 from app.core.metrics import SERVICE_NAME
 from app.settings.config import settings
 from app.settings.terminal_logging import ServiceContextFilter, TerminalFormatter
@@ -64,9 +65,19 @@ def setup_logging(level: str = "INFO") -> None:
                 "terminal": {"()": TerminalFormatter},
             },
             "handlers": {
-                "console": {"class": "logging.StreamHandler", "formatter": "terminal", "filters": ["service_context"]},
+                "console": {
+                    "class": "logging.StreamHandler",
+                    "formatter": "terminal",
+                    "filters": ["service_context"],
+                },
             },
-            "filters": {"service_context": {"()": ServiceContextFilter, "service_name": SERVICE_NAME, "environment": settings.environment}},
+            "filters": {
+                "service_context": {
+                    "()": ServiceContextFilter,
+                    "service_name": SERVICE_NAME,
+                    "environment": settings.environment,
+                }
+            },
             "root": {"handlers": ["console"], "level": level},
             "loggers": {
                 "sqlalchemy.engine": {"level": "WARNING", "propagate": True},

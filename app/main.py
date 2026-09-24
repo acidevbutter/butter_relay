@@ -7,6 +7,7 @@ from app.api_keys.router import router as api_keys_router
 from app.auth.router import router as auth_router
 from app.core.exceptions import register_exception_handlers
 from app.core.metrics import configure_metrics, emit_metrics
+from app.core.telemetry import configure_telemetry
 from app.db.session import session_factory
 from app.messages.router import router as messages_router
 from app.projects.router import router as projects_router
@@ -19,6 +20,7 @@ setup_logging(settings.log_level)
 configure_metrics()
 
 app = FastAPI(title="Butter Relay", description="DevButter company-wide email dispatch service")
+configure_telemetry(app)
 register_middleware(app)
 register_exception_handlers(app)
 

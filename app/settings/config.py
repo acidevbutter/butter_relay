@@ -13,6 +13,13 @@ class Settings(BaseSettings):
     debug: bool = False
     log_level: str = "INFO"
 
+    # app.core.telemetry reads these two directly; the rest of the OTEL_* vars
+    # (endpoint, protocol, headers, compression, ...) are standard OTel SDK
+    # env vars read natively by OTLPSpanExporter()/OTLPMetricExporter() --
+    # they don't need to be modeled here.
+    otel_enabled: bool = False
+    otel_service_name: str = "butter-relay"
+
     database_host: str = "shared-postgres"
     database_port: int = 5432
     database_user: str = "relay"
