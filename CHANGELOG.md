@@ -4,6 +4,11 @@ Registro retroativo baseado em todos os commits da branch `master`.
 
 ## Unreleased
 
+- Adicionada instrumentação OpenTelemetry de FastAPI, HTTPX e SQLAlchemy, com
+  traces e métricas APM enviados por OTLP/HTTP diretamente ao New Relic quando
+  `OTEL_ENABLED=true`. O stdout continua legível em logfmt e separado do canal
+  OTLP; nenhuma chave de licença é persistida no repositório.
+
 - Removida a dependência `aws-embedded-metrics` (não utilizada desde a
   migração de `core/metrics.py` para logs JSON estruturados); `poetry.lock`
   regenerado, removendo também `aiohttp` e suas dependências transitivas, que

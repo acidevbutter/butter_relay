@@ -1,4 +1,3 @@
-import json
 import logging
 from typing import NoReturn
 from unittest.mock import AsyncMock
@@ -37,7 +36,9 @@ def test_helpers_and_configuration() -> None:
     assert status_class(503) == "5xx"
 
 
-async def test_emit_metrics_writes_one_json_line(caplog: pytest.LogCaptureFixture) -> None:
+async def test_emit_metrics_writes_one_structured_event(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     with caplog.at_level(logging.INFO, logger="metrics"):
         await emit_metrics(
             [("RequestCount", 1, "Count")],
@@ -45,24 +46,25 @@ async def test_emit_metrics_writes_one_json_line(caplog: pytest.LogCaptureFixtur
         )
 
     assert len(caplog.records) == 1
-    payload = json.loads(caplog.records[0].message)
-    assert payload["service.name"] == SERVICE_NAME
-    assert payload["metric.namespace"] == NAMESPACE
+    payload = vars(caplog.records[0])
+    assert payload["event"] == "metric_emitted"
+    assert payload["service"] == SERVICE_NAME
+    assert payload["metric_namespace"] == NAMESPACE
     assert payload["environment"] == "development"
     assert payload["Method"] == "GET"
     assert payload["Route"] == "/api/v1/projects/{project_id}"
     assert payload["StatusClass"] == "2xx"
     assert payload["RequestCount"] == 1
-    assert payload["RequestCount.unit"] == "Count"
+    assert payload["RequestCount_unit"] == "Count"
 
 
 async def test_emit_metrics_without_dimensions(caplog: pytest.LogCaptureFixture) -> None:
     with caplog.at_level(logging.INFO, logger="metrics"):
         await emit_metrics([("HealthCheckFailure", 1, "Count")])
 
-    payload = json.loads(caplog.records[0].message)
+    payload = vars(caplog.records[0])
     assert payload["HealthCheckFailure"] == 1
-    assert payload["HealthCheckFailure.unit"] == "Count"
+    assert payload["HealthCheckFailure_unit"] == "Count"
 
 
 async def test_emit_metrics_failure_does_not_raise(
@@ -127,7 +129,7 @@ async def test_request_emits_one_metrics_event_without_breaking_response(
     assert response.status_code == 200
     metric_records = [r for r in caplog.records if r.name == "metrics"]
     assert len(metric_records) == 1
-    payload = json.loads(metric_records[0].message)
+    payload = vars(metric_records[0])
     assert payload["RequestCount"] == 1
 
 
