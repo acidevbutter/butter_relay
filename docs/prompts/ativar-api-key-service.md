@@ -16,7 +16,19 @@ e confirme que `authenticate` aparece referenciado pela dependência nova (`get_
 ou nome equivalente) usada nos 4 routers de `/api/v1/*`. Se não aparecer, o prompt anterior não
 foi concluído -- pare e resolva isso primeiro.
 
-## 2. Decidir e implementar autenticação do worker SQS
+## 2. Decidir e implementar autenticação do worker
+
+**Atualização (2026-09-24):** o transporte migrou de SQS para Celery/Redis; não existe mais
+`app/worker/consumer.py` nem autenticação por IAM de fila (o conceito não existe no transporte
+Redis). A pergunta real desta seção -- vincular o produtor ao `project_id` que ele declara -- já
+está sendo tratada em `docs/prompts/validar-project-id-worker-sqs.md`, que foi atualizado para o
+transporte atual e continua em aberto (achado H-02 ainda não implementado: nada em
+`app/worker/tasks.py::process_message_task` valida o `project_id` recebido contra a fila de onde
+a task foi consumida). Trate a decisão de autenticação do worker como parte daquele prompt, não
+deste -- as opções A/B abaixo descreviam o mundo SQS e não se aplicam mais tal como escritas.
+
+<details>
+<summary>Texto original (histórico, transporte SQS)</summary>
 
 `app/worker/consumer.py:18-20` importa `ApiKeyRepository` com o comentário
 `# noqa: F401 (SQS auth is IAM, not API key -- see plan)`. Hoje isso está correto para o
@@ -37,6 +49,8 @@ decisão em `docs/butter-relay-fluxos.md`:
   `api_key.project_id == project_id` do atributo da mensagem antes de prosseguir; em caso de
   falha, trate como `MalformedMessageError` (não deleta a mensagem, não processa).
 
+</details>
+
 ## 3. Remover ambiguidade do comentário
 
 Independente da opção escolhida, remova qualquer comentário do tipo "see plan" que não aponte
@@ -47,8 +61,8 @@ lugar.
 
 - Em `tests/test_api_keys.py`: teste unitário de `ApiKeyService.authenticate` com key válida,
   key revogada e key inexistente (se ainda não existir nenhum teste direto do service).
-- Se optar pela Opção B: em `tests/test_worker_consumer.py`, adicione um caso de mensagem SQS
-  com key ausente/inválida/de outro projeto -- deve virar `MalformedMessageError` e a mensagem
-  SQS não deve ser deletada (mesmo padrão dos outros testes desse arquivo).
+- A parte de autenticação do worker (antiga Opção B acima) não se aplica mais aqui -- ver
+  `docs/prompts/validar-project-id-worker-sqs.md` para os testes de validação de `project_id`
+  em `tests/test_worker_tasks.py`.
 
 Rode `poetry run pytest -q` ao final.

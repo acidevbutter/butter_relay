@@ -1,3 +1,19 @@
+**Atualização (2026-09-24) -- M-01/M-02 resolvidos por outra via, não pelas mudanças abaixo:** o
+transporte migrou de SQS para Celery/Redis. Não existe mais `run_forever`/loop manual nem
+`delete_message` -- `app/worker/consumer.py` foi removido, e Celery cuida do ack via
+`acks_late=True` (`app/worker/celery_app.py`/`tasks.py`). A classificação de erro permanente vs.
+transitório que este prompt pedia já existe, de outra forma: `autoretry_for=(NotFoundError,
+EmailSendError, ValidationFailedError)` + `MAX_RETRIES=5` + `retry_backoff`/`retry_backoff_max`/
+`retry_jitter` em `app/worker/tasks.py:147-156` cobre o "erro transitório com backoff"; já
+`MalformedMessageError` é logada e descartada sem retry em `process_message_task`
+(`app/worker/tasks.py:191-193`), que é o "erro permanente não reprocessa" do finding original.
+Não há mais uma chamada de delete separada que possa falhar e derrubar o processo (achado da
+seção 2 abaixo) -- Celery já trata isso internamente. O corpo original abaixo (referências a
+`consumer.py`/SQS) é mantido como registro histórico do raciocínio, mas não deve ser seguido ao
+pé da letra hoje.
+
+---
+
 Corrija os achados M-01/M-02 de `docs/butter-relay-fluxos.md` (detalhado em
 `docs/auditoria-seguranca-2026-08-29.md`, item 10): `run_forever` só trata 3 tipos de exceção e
 não distingue erro permanente de transitório.
