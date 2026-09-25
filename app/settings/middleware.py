@@ -12,6 +12,7 @@ from app.core.metrics import emit_metrics, route_template, status_class
 from app.settings.config import settings
 
 logger = logging.getLogger("app.request")
+_PROBE_PATHS = frozenset({"/health", "/health/ready"})
 
 
 class RequestContextMiddleware(BaseHTTPMiddleware):
@@ -48,6 +49,8 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
             raise
         duration_ms = (time.perf_counter() - start) * 1000
         response.headers["X-Request-ID"] = request_id
+        if request.url.path in _PROBE_PATHS:
+            return response
         route = route_template(request)
         # Exactly one completion event per request: this is the only log line
         # for a request that completes (successfully or with a handled error
