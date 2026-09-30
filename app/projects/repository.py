@@ -1,4 +1,5 @@
 import uuid
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -7,6 +8,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.exceptions import ConflictError
 from app.projects.models import Project
 from app.projects.schemas import ProjectCreate, ProjectUpdate
+
+
+def _dump(payload: ProjectCreate | ProjectUpdate, *, exclude_unset: bool = False) -> dict[str, Any]:
+    """JSON-mode dump (enums become plain strings for the DB), with unset
+    delivery_config keys dropped so the stored JSON only holds real overrides."""
+    data = payload.model_dump(mode="json", exclude_unset=exclude_unset)
+    if isinstance(data.get("delivery_config"), dict):
+        config = data["delivery_config"]
+        data["delivery_config"] = {k: v for k, v in config.items() if v is not None}
+    return data
 
 
 class ProjectRepository:
@@ -25,14 +36,14 @@ class ProjectRepository:
         return result.scalar_one_or_none()
 
     async def create(self, payload: ProjectCreate) -> Project:
-        project = Project(**payload.model_dump())
+        project = Project(**_dump(payload))
         self.session.add(project)
         await self._commit_or_raise_conflict(payload.slug)
         await self.session.refresh(project)
         return project
 
     async def update(self, project: Project, payload: ProjectUpdate) -> Project:
-        for field, value in payload.model_dump(exclude_unset=True).items():
+        for field, value in _dump(payload, exclude_unset=True).items():
             setattr(project, field, value)
         await self._commit_or_raise_conflict(project.slug)
         await self.session.refresh(project)

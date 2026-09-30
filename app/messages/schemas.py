@@ -13,6 +13,7 @@ class MessageCreate(BaseModel):
     to_email: str
     payload: dict[str, Any] = {}
     broker_message_id: str | None = None
+    provider: str | None = None
 
 
 class MessageRead(BaseModel):
@@ -22,6 +23,7 @@ class MessageRead(BaseModel):
     project_id: uuid.UUID
     template_id: uuid.UUID | None
     channel: str
+    provider: str | None
     to_email: str
     payload: dict[str, Any]
     rendered_subject: str | None

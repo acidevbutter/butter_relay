@@ -4,6 +4,17 @@ Registro retroativo baseado em todos os commits da branch `master`.
 
 ## Unreleased
 
+- Cada company (Project) passa a definir o próprio meio de disparo: novos campos
+  `Project.delivery_provider` (`brevo` por padrão, inclusive em desenvolvimento —
+  o Mailpit deixou de ser forçado pelo ambiente) e `Project.delivery_config`
+  (`smtp_host`/`smtp_port`, sem segredos), expostos em `POST/PATCH /api/v1/projects`.
+  O worker e o reenvio do admin resolvem o provider pelo projeto
+  (`get_email_provider_for_project`), e cada `Message` registra o `provider` usado.
+  Falhas de conexão SMTP agora viram `EmailSendError` (mensagem marcada `failed` e
+  reenfileirada) em vez de uma exceção crua. Migration `b7d4e2a91c3f`.
+- Corrigido: o worker do `docker-compose.yml` não montava `./alembic` e não subia após
+  qualquer migration nova (#33).
+
 - Corrigido: o worker perdia toda mensagem após a primeira de cada processo Celery
   (`RuntimeError: ... attached to a different loop`), porque cada task usa um event
   loop novo mas o pool asyncpg do engine global sobrevivia à task anterior. O engine
