@@ -4,6 +4,13 @@ Registro retroativo baseado em todos os commits da branch `master`.
 
 ## Unreleased
 
+- Removidos OpenTelemetry (traces, métricas e export OTLP de logs) e as linhas JSON
+  `metric emitted` (`app/core/telemetry.py`, `app/core/metrics.py`, variáveis `OTEL_*`,
+  dependências `opentelemetry-*`): o export de métricas ao New Relic falhava com `401` e
+  poluía os logs de produção. O stdout passa a ter só logs legíveis (uma linha por evento,
+  `TerminalFormatter`), no API e no worker Celery. Falhas do provedor de e-mail continuam
+  registradas como `email_provider_error` (`provider=brevo|smtp`), sem endereços nem corpos.
+
 - Docs: novo `docs/GUIA_FLUXO_E_IMPLEMENTACAO.md` (fluxo validado, canal de disparo por
   company, passo a passo do relay e checklist do que falta no admin/backend DevButter);
   README, `.env.example` (`SMTP_HOST`/`SMTP_PORT`) e `API_ROUTES_CURL.md` atualizados. O log

@@ -1,8 +1,10 @@
 """Per-project delivery provider: factory, API contract and worker wiring."""
 
+import logging
 import uuid
 from unittest.mock import AsyncMock
 
+import httpx
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -61,15 +63,73 @@ def test_factory_rejects_unknown_provider() -> None:
 
 
 async def test_smtp_provider_wraps_connection_errors_as_email_send_error(
-    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
-    import app.core.email_provider as module
-
-    monkeypatch.setattr(module, "emit_metrics", AsyncMock())
     provider = SmtpEmailProvider(host="127.0.0.1", port=1)  # nothing listens on port 1
 
-    with pytest.raises(EmailSendError, match="SMTP send failed"):
+    with (
+        caplog.at_level(logging.WARNING, logger="app.core.email_provider"),
+        pytest.raises(EmailSendError, match="SMTP send failed"),
+    ):
         await provider.send(to="a@b.co", subject="s", html="<p>x</p>", from_email="f@b.co")
+
+    records = [r for r in caplog.records if getattr(r, "event", None) == "email_provider_error"]
+    assert len(records) == 1
+    assert records[0].__dict__["provider"] == "smtp"
+    assert "a@b.co" not in records[0].getMessage()
+
+
+@pytest.mark.parametrize("status_code", [400, 500])
+async def test_brevo_failures_log_provider_error_without_recipient_or_body(
+    caplog: pytest.LogCaptureFixture, status_code: int
+) -> None:
+    client = httpx.AsyncClient(
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(status_code, json={"message": "failed"})
+        )
+    )
+    provider = BrevoEmailProvider(api_key="test-key", client=client)
+
+    with (
+        caplog.at_level(logging.WARNING, logger="app.core.email_provider"),
+        pytest.raises(EmailSendError),
+    ):
+        await provider.send(
+            to="recipient@example.com",
+            subject="Subject",
+            html="<p>Body</p>",
+            from_email="sender@example.com",
+        )
+    await client.aclose()
+
+    records = [r for r in caplog.records if getattr(r, "event", None) == "email_provider_error"]
+    assert len(records) == 1
+    assert records[0].__dict__["provider"] == "brevo"
+    message = records[0].getMessage()
+    assert str(status_code) in message
+    assert "recipient@example.com" not in message
+    assert "test-key" not in message
+
+
+async def test_brevo_transport_error_is_logged_and_reraised(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    def _boom(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("no route")
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(_boom))
+    provider = BrevoEmailProvider(api_key="test-key", client=client)
+
+    with (
+        caplog.at_level(logging.WARNING, logger="app.core.email_provider"),
+        pytest.raises(httpx.ConnectError),
+    ):
+        await provider.send(to="a@b.co", subject="s", html="<p>x</p>", from_email="f@b.co")
+    await client.aclose()
+
+    records = [r for r in caplog.records if getattr(r, "event", None) == "email_provider_error"]
+    assert len(records) == 1
+    assert "ConnectError" in records[0].getMessage()
 
 
 # --- API contract --------------------------------------------------------------
@@ -160,7 +220,6 @@ def patch_worker_session(monkeypatch: pytest.MonkeyPatch, db_session: AsyncSessi
             return False
 
     monkeypatch.setattr(tasks_module, "session_factory", lambda: _SessionCtx())
-    monkeypatch.setattr(tasks_module, "emit_metrics", AsyncMock())
 
 
 async def _seed(

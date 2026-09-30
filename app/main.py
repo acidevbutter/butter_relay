@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import RedirectResponse
 from sqlalchemy import text
@@ -6,8 +8,6 @@ from app.admin.router import router as admin_router
 from app.api_keys.router import router as api_keys_router
 from app.auth.router import router as auth_router
 from app.core.exceptions import register_exception_handlers
-from app.core.metrics import configure_metrics, emit_metrics
-from app.core.telemetry import configure_telemetry
 from app.db.session import session_factory
 from app.messages.router import router as messages_router
 from app.projects.router import router as projects_router
@@ -17,10 +17,9 @@ from app.settings.middleware import register_middleware
 from app.templates_.router import router as templates_router
 
 setup_logging(settings.log_level)
-configure_metrics()
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Butter Relay", description="DevButter company-wide email dispatch service")
-configure_telemetry(app)
 register_middleware(app)
 register_exception_handlers(app)
 
@@ -43,7 +42,11 @@ async def readiness() -> dict[str, str]:
         async with session_factory() as session:
             await session.execute(text("SELECT 1"))
     except Exception as exc:
-        await emit_metrics([("HealthCheckFailure", 1, "Count")])
+        logger.error(
+            "readiness check failed: database unavailable",
+            exc_info=True,
+            extra={"event": "readiness_failed"},
+        )
         raise HTTPException(status_code=503, detail="database unavailable") from exc
     return {"status": "ok"}
 

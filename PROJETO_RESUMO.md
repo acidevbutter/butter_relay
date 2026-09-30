@@ -30,7 +30,7 @@ log de mensagens sem tocar no banco.
 | Templates | Jinja2 `SandboxedEnvironment` (corpo do template é conteúdo do usuário) |
 | Provider de e-mail | Brevo (`app/core/email_provider.py`, protocolo `EmailProvider`) |
 | Dashboard | Jinja2 + HTMX, auth por cookie de sessão (`bcrypt` + `itsdangerous`) |
-| Observabilidade | APM via OTLP/HTTP direto ao New Relic, stdout logfmt e readiness probe |
+| Observabilidade | logs legíveis no stdout (uma linha por evento, `TerminalFormatter`) e readiness probe; sem OpenTelemetry/métricas |
 | Testes | `pytest` + `httpx.AsyncClient`, SQLite em memória; Celery/Brevo mockados nos testes do worker |
 | Lint/Type | `ruff` (E,F,I,UP,B,SIM), `mypy --strict` |
 
@@ -100,7 +100,7 @@ app/
 ├── settings/          # config.py (env via pydantic-settings), logging_config.py, middleware.py
 ├── core/              # dependencies.py (DbSession), decorators.py (log_call/log_errors),
 │                      # exceptions.py (handlers auto-registrados), email_provider.py,
-│                      # telemetry.py (OTLP), metrics.py (logfmt), blob_client.py (Butter Blob / NFS-e)
+│                      # blob_client.py (Butter Blob / NFS-e)
 ├── db/                # base.py, session.py, all_models.py (p/ autogenerate do Alembic)
 ├── projects/          # router/schemas/models/service/repository/dependencies
 ├── api_keys/          # credenciais por projeto (+ dep de auth CurrentApiKey)
@@ -220,7 +220,7 @@ template e validação de payload por JSON-schema, fluxos de login/sessão, deco
   pendências: autenticação nas rotas `/api/v1` (guard nem sempre fiado), idempotência de
   entrega (unicidade de `broker_message_id`), `SESSION_SECRET` de produção, sandbox iframe no
   preview, redação de dados sensíveis nos logs, cobertura de testes messages/api_keys.
-- **Recente**: APM OpenTelemetry direto ao New Relic e stdout logfmt legível; readiness probe;
+- **Recente**: OpenTelemetry/métricas removidos, stdout com uma linha legível por evento; readiness probe;
   DI refatorada por domínio; resolução de NFS-e no blob ao enviar
   `nota_fiscal_emitida`; restrição de destinatários em staging/preprod; Mailpit no Compose dev;
   deploy conjunto API+worker no Coolify staging.

@@ -23,7 +23,6 @@ from app.core.email_provider import (
     get_email_provider_for_project,
 )
 from app.core.exceptions import NotFoundError, ValidationFailedError
-from app.core.metrics import emit_metrics
 from app.db.session import engine, session_factory
 from app.messages.models import Message, MessageStatus
 from app.messages.repository import MessageRepository
@@ -77,26 +76,18 @@ async def process_message(
         template_service = TemplateService(TemplateRepository(session))
         message_service = MessageService(MessageRepository(session))
 
-        try:
-            parsed_project_id, template_key, to_email, render_payload = _parse_task_args(
-                project_id, template_key, to_email, payload
-            )
-        except MalformedMessageError:
-            await emit_metrics([("MessagesMalformed", 1, "Count")], {"TemplateKey": "unknown"})
-            raise
+        parsed_project_id, template_key, to_email, render_payload = _parse_task_args(
+            project_id, template_key, to_email, payload
+        )
 
         existing = await message_service.get_by_broker_message_id(broker_message_id)
         if existing is not None and existing.status == MessageStatus.SENT:
-            await emit_metrics([("MessagesProcessed", 1, "Count")], {"TemplateKey": template_key})
             return
 
-        dimensions = {"TemplateKey": template_key}
-        await emit_metrics([("MessagesProcessed", 1, "Count")], dimensions)
         try:
             project = await project_service.get(parsed_project_id)
             if not project.is_active:
                 logger.warning("skipping message for inactive project %s", parsed_project_id)
-                await emit_metrics([("MessagesFailed", 1, "Count")], dimensions)
                 return
 
             template = await template_service.get_active(parsed_project_id, template_key)
@@ -129,7 +120,6 @@ async def process_message(
                 detail = "recipient blocked by non-production delivery policy"
                 logger.warning("%s: %s", detail, to_email)
                 await message_service.mark_failed(message, detail)
-                await emit_metrics([("MessagesFailed", 1, "Count")], dimensions)
                 return
 
             provider = email_provider or get_email_provider_for_project(
@@ -143,18 +133,12 @@ async def process_message(
                 from_name=project.default_sender_name,
             )
             await message_service.mark_sent(message, result.provider_message_id)
-            await emit_metrics([("MessagesSent", 1, "Count")], dimensions)
         except EmailSendError as exc:
             await message_service.mark_failed(message, exc.detail)
-            await emit_metrics([("MessagesFailed", 1, "Count")], dimensions)
             raise
         except ValidationFailedError as exc:
             if "message" in locals():
                 await message_service.mark_failed(message, exc.detail)
-            await emit_metrics([("MessagesFailed", 1, "Count")], dimensions)
-            raise
-        except Exception:
-            await emit_metrics([("MessagesFailed", 1, "Count")], dimensions)
             raise
 
 

@@ -155,7 +155,7 @@ erDiagram
 ```
 app/
 ├── main.py                # FastAPI() wiring: middleware, exception handlers, routers
-├── settings/               # config.py (env), logging_config.py, middleware.py
+├── settings/               # config.py (env), logging_config.py, terminal_logging.py, middleware.py
 ├── core/                   # dependencies.py, decorators.py (log_call/log_errors),
 │                           # exceptions.py (self-registering handlers), email_provider.py
 ├── db/                     # base.py, session.py, all_models.py (for Alembic autogenerate)
