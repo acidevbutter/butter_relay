@@ -44,6 +44,12 @@ class TemplateRepository:
         template.is_active = False
         self.session.add(template)
 
+    async def activate(self, template: Template) -> Template:
+        template.is_active = True
+        await self.session.commit()
+        await self.session.refresh(template)
+        return template
+
     async def create(self, template: Template) -> Template:
         self.session.add(template)
         try:
