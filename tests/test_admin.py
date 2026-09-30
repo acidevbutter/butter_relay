@@ -379,3 +379,19 @@ async def test_resend_provider_failure_marks_failed_without_500(
     refreshed = await MessageRepository(db_session).get(message_id)
     assert refreshed is not None
     assert refreshed.status == MessageStatus.FAILED and refreshed.last_error == "nope"
+
+
+async def test_message_log_shows_the_delivery_channel(admin_client, db_session) -> None:
+    await _create_project(admin_client, delivery_provider="smtp")
+    project_id = await _project_id(db_session)
+    message = await MessageRepository(db_session).create(
+        MessageCreate(project_id=project_id, to_email="x@acme.com", provider="smtp")
+    )
+    message_id = message.id
+
+    listing = await admin_client.get("/admin/messages")
+    detail = await admin_client.get(f"/admin/messages/{message_id}")
+
+    assert "<th>Channel</th>" in listing.text
+    assert '<td class="muted">smtp</td>' in listing.text
+    assert "<th>Channel</th><td>smtp</td>" in detail.text

@@ -1,11 +1,12 @@
 # Butter Relay
 
-DevButter's company-wide, multi-tenant transactional email service. Apps publish "send this email" jobs as a Celery task; Butter Relay consumes them, renders a versioned Jinja2 template, dispatches through Brevo, and logs every attempt. A server-rendered admin dashboard lets the team manage projects, API keys, templates, and the message log without touching the database directly.
+DevButter's company-wide, multi-tenant transactional email service. Apps publish "send this email" jobs as a Celery task; Butter Relay consumes them, renders a versioned Jinja2 template, dispatches through the company's own delivery channel (Brevo by default), and logs every attempt. A server-rendered admin dashboard lets the team manage projects, API keys, templates, and the message log without touching the database directly.
 
 - **Multi-tenant**: one deployment serves every DevButter app/client (Crate Diggr, Orbit, GranAI, client sites, ...), each scoped as a `Project`.
 - **Queue-driven**: [Celery](https://docs.celeryq.dev/) with a Redis broker, same Redis instance in every environment (Coolify-managed) — no per-environment queue emulation to keep in sync with production, unlike the ElasticMQ/SQS setup this replaced.
+- **Per-company delivery channel**: each project picks how its mail leaves the relay — `brevo` (default everywhere) or `smtp` (Mailpit sandbox / own host) — in the admin or via API. Step-by-step: [`docs/GUIA_FLUXO_E_IMPLEMENTACAO.md`](docs/GUIA_FLUXO_E_IMPLEMENTACAO.md).
 - **Email-only for now**: `Message.channel` defaults to `"email"` and is reserved for a future `in_app`/`push` channel, but no other delivery mechanism is built.
-- **Provider**: [Brevo](https://www.brevo.com/) today, behind an `EmailProvider` protocol. Amazon SES is the documented next implementation (IAM-authenticated, no separate API key) since deployment targets AWS.
+- **Providers**: [Brevo](https://www.brevo.com/) (default) and plain SMTP, behind an `EmailProvider` protocol and resolved per project by `get_email_provider_for_project`. A new channel = one class + one enum member + one factory branch.
 - **Dashboard**: FastAPI + Jinja2 + HTMX, same Docker image and service layer as the API — no separate frontend build.
 
 ## Architecture
@@ -93,6 +94,8 @@ erDiagram
         bool external
         string default_sender_email
         string default_sender_name
+        string delivery_provider
+        json delivery_config
         bool is_active
     }
     API_KEY {
@@ -122,6 +125,7 @@ erDiagram
         string to_email
         json payload
         string status
+        string provider
         int attempts
         string provider_message_id
     }
@@ -142,7 +146,7 @@ erDiagram
 | Persistence | SQLAlchemy 2.0 (async) + Alembic, Postgres |
 | Queue | Celery, Redis broker + result backend — same Redis in every environment |
 | Templates | Jinja2 `SandboxedEnvironment` (template bodies are user-authored content) |
-| Email provider | Brevo (`core/email_provider.py`, `EmailProvider` protocol) |
+| Email provider | Per project: Brevo (default) or SMTP (`core/email_provider.py`, `EmailProvider` protocol) |
 | Dashboard | Jinja2 + HTMX, session-cookie auth (`bcrypt` + `itsdangerous`) |
 | Testing | `pytest` + `httpx.AsyncClient`, in-memory SQLite |
 
@@ -184,8 +188,9 @@ cp .env.example .env
 ```
 
 The shared development PostgreSQL is started by `../infra/docker-compose.yml` as `shared-postgres`.
-The defaults already point at `shared-postgres` and `redis`. Set `BREVO_API_KEY` if you want real
-sends instead of an expected `401`.
+The defaults already point at `shared-postgres` and `redis`. Every project sends through Brevo by
+default, so set `BREVO_API_KEY` for real sends (otherwise expect a `401`), or switch a project to the
+`smtp` channel in the admin to land its mail in Mailpit.
 
 ### 3. Bring up the stack
 
@@ -246,12 +251,12 @@ asyncio.run(main())
 
 Open [http://localhost:8010/admin](http://localhost:8010/admin), sign in with the credentials from step 5, then:
 
-1. **Projects** → create a project (name, slug, default sender, optional **External** checkbox).
+1. **Projects** → create a project (name, slug, default sender, **delivery channel** Brevo/SMTP, optional **External** checkbox). On the project page, **Settings & delivery channel** edits all of it and **Send test** verifies the channel.
    Each project gets its own Celery queue derived from its slug (`relay-<slug>`, see
    `Project.queue_name`) — no queue URL to type in. External projects' API keys expire 30 days
    after creation; internal ones don't expire until revoked.
 2. Open the project → **Generate key** to create an API key (shown once — copy it).
-3. Still on the project page → **Publish new version** to create a template (Jinja2 `subject_template` + `html_template`, e.g. `Welcome, {{ name }}!`).
+3. Still on the project page → **Publish new version** to create a template (Jinja2 `subject_template` + `html_template`, optional `variables_schema`). Invalid Jinja/schema is rejected; **Edit as new version** and **Activate** (rollback) manage versions.
 4. **Messages** shows the log of every send attempt, with a filter by project/status and a **Resend** action on failed messages.
 
 ### 7. Send a test message through the queue
@@ -317,13 +322,14 @@ Exercises the real HTTP surface end-to-end: health check, admin login/session, p
 | `DATABASE_HOST` / `PORT` / `USER` / `PASSWORD` / `NAME` | `shared-postgres` / `5432` / `relay` | Pydantic monta `postgresql+asyncpg://` |
 | `REDIS_URL` | `redis://redis:6379/0` | Celery broker + result backend; producers must point at this same instance |
 | `RELAY_QUEUE_NAME` | `relay-shared` | Celery queue the worker consumes from |
-| `BREVO_API_KEY` | — | Required for real sends |
+| `BREVO_API_KEY` | — | Required outside development; used by every project on the `brevo` channel |
+| `SMTP_HOST` / `SMTP_PORT` | `mailpit` / `1025` | Defaults for projects on the `smtp` channel (overridable per project) |
 | `SESSION_SECRET` | dev-only placeholder | Set a real secret in production |
 
 ## Producer contract (Celery task shape)
 
 Producers call `send_task` against the shared Redis broker (see step 7 above for a full example) —
-no import of this repo's code, just matching the task name and kwargs:
+no import of this repo's code, just matching the task name and kwargs. The project's delivery channel is applied by the worker — producers never choose it:
 
 ```python
 celery.send_task(
@@ -359,5 +365,5 @@ Everything runs on Coolify, prod and staging alike — see
 
 ## Roadmap notes
 
-- **Amazon SES**: planned second `EmailProvider` implementation (IAM-authenticated) — see the docstring in [`app/core/email_provider.py`](app/core/email_provider.py).
+- **Amazon SES** and per-company Brevo keys / authenticated SMTP: not built; see "Ainda não implementado" in [`docs/GUIA_FLUXO_E_IMPLEMENTACAO.md`](docs/GUIA_FLUXO_E_IMPLEMENTACAO.md).
 - **In-app/push notifications**: explicitly out of scope for now. `Message.channel` defaults to `"email"` and exists so a future channel doesn't require a schema migration — no other delivery mechanism is implemented.
