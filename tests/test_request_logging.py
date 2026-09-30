@@ -13,7 +13,7 @@ def _format(record: logging.LogRecord) -> dict:
     return json.loads(JsonFormatter().format(record))
 
 
-async def test_one_completion_event_per_successful_request(
+async def test_health_probe_does_not_emit_completion_event(
     client: httpx.AsyncClient, caplog: pytest.LogCaptureFixture
 ) -> None:
     with caplog.at_level(logging.INFO, logger=REQUEST_LOGGER):
@@ -21,19 +21,7 @@ async def test_one_completion_event_per_successful_request(
 
     assert response.status_code == 200
     request_records = [r for r in caplog.records if r.name == REQUEST_LOGGER]
-    assert len(request_records) == 1
-
-    payload = _format(request_records[0])
-    assert payload["event"] == "request_completed"
-    assert payload["logger"] == REQUEST_LOGGER
-    assert payload["level"] == "INFO"
-    assert payload["service"] == "butter-relay"
-    assert payload["environment"] == "development"
-    assert payload["method"] == "GET"
-    assert payload["route"] == "/health"
-    assert payload["status_code"] == 200
-    assert isinstance(payload["duration_ms"], int | float)
-    assert "request_id" in payload and payload["request_id"]
+    assert request_records == []
 
 
 async def test_route_field_is_template_not_raw_path_with_ids(

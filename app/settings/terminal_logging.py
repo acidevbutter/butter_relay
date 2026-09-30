@@ -1,6 +1,5 @@
-"""Human-readable stdout logging with stable New Relic attributes."""
+"""Compact, human-readable formatter for the application terminal."""
 
-import json
 import logging
 from datetime import UTC, datetime
 
@@ -22,11 +21,6 @@ _CONSUMED = {
 }
 
 
-def _value(value: object) -> str:
-    text = str(value)
-    return json.dumps(text) if not text or any(char.isspace() for char in text) else text
-
-
 class ServiceContextFilter(logging.Filter):
     def __init__(self, service_name: str, environment: str) -> None:
         super().__init__()
@@ -40,7 +34,7 @@ class ServiceContextFilter(logging.Filter):
 
 
 class TerminalFormatter(logging.Formatter):
-    """Render one readable logfmt line while retaining structured attributes."""
+    """Render a short terminal line; OTLP keeps the full structured record."""
 
     def format(self, record: logging.LogRecord) -> str:
         event = getattr(
@@ -48,35 +42,23 @@ class TerminalFormatter(logging.Formatter):
             "event",
             "metric_emitted" if record.name == "metrics" else "log",
         )
-        log_type = getattr(
-            record,
-            "log_type",
-            "metric"
-            if record.name == "metrics"
-            else "error"
-            if record.levelno >= logging.ERROR
-            else "access"
-            if record.name == "app.request"
-            else "application",
+        timestamp = datetime.fromtimestamp(record.created, tz=UTC).strftime("%Y-%m-%d %H:%M:%S")
+        service = getattr(record, "service_name", "unknown")
+        environment = getattr(record, "deployment_environment", "unknown")
+        head = (
+            f"{timestamp}Z {record.levelname:<7} [{service}/{environment}] "
+            f"{event}: {record.getMessage()}"
         )
-        fields: dict[str, object] = {
-            "timestamp": datetime.fromtimestamp(record.created, tz=UTC).isoformat(),
-            "service.name": getattr(record, "service_name", "unknown"),
-            "deployment.environment": getattr(record, "deployment_environment", "unknown"),
-            "log.severity": record.levelname,
-            "event.name": event,
-            "log.type": log_type,
-            "logger": record.name,
-            "message": record.getMessage(),
-        }
-        for source, target in _ALIASES.items():
-            if hasattr(record, source):
-                fields[target] = getattr(record, source)
-        for key, value in record.__dict__.items():
-            if key not in _RESERVED and key not in _CONSUMED and key not in fields:
-                fields[key] = value
-
-        line = " ".join(f"{key}={_value(value)}" for key, value in fields.items())
+        details: list[str] = []
+        if hasattr(record, "method"):
+            details.append(f"{record.method} {getattr(record, 'route', '?')}")
+        if hasattr(record, "status_code"):
+            details.append(f"→ {record.status_code}")
+        if hasattr(record, "duration_ms"):
+            details.append(f"{record.duration_ms:.1f}ms")
+        if hasattr(record, "request_id"):
+            details.append(f"request_id={record.request_id}")
+        line = f"{head} | {' | '.join(details)}" if details else head
         if record.exc_info:
             return f"{line}\n{self.formatException(record.exc_info)}"
         return line

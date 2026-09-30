@@ -120,7 +120,7 @@ async def test_readiness_reports_database_failure_and_metric(
     emit_mock.assert_awaited_once_with([("HealthCheckFailure", 1, "Count")])
 
 
-async def test_request_emits_one_metrics_event_without_breaking_response(
+async def test_health_probe_does_not_emit_request_metrics(
     client: httpx.AsyncClient, caplog: pytest.LogCaptureFixture
 ) -> None:
     with caplog.at_level(logging.INFO, logger="metrics"):
@@ -128,9 +128,7 @@ async def test_request_emits_one_metrics_event_without_breaking_response(
 
     assert response.status_code == 200
     metric_records = [r for r in caplog.records if r.name == "metrics"]
-    assert len(metric_records) == 1
-    payload = vars(metric_records[0])
-    assert payload["RequestCount"] == 1
+    assert metric_records == []
 
 
 @pytest.mark.parametrize("status_code", [400, 500])
