@@ -10,9 +10,13 @@ Start the worker with:
 
 from __future__ import annotations
 
+from typing import Any
+
 from celery import Celery
+from celery.signals import setup_logging as celery_setup_logging
 
 from app.settings.config import settings
+from app.settings.logging_config import setup_logging
 
 TASK_NAME = "butter_relay.process_message"
 
@@ -50,3 +54,13 @@ celery_app.conf.update(
     result_expires=3600,
     broker_connection_retry_on_startup=True,
 )
+
+
+@celery_setup_logging.connect  # type: ignore[untyped-decorator]  # celery ships no type information
+def _configure_worker_logging(**kwargs: Any) -> None:
+    """Fires only inside the worker process (never when a producer merely imports this
+    module). Connecting a receiver to Celery's `setup_logging` signal makes Celery skip
+    its own plain-text logging setup, so the worker emits the same structured logs as
+    the API (acidevbutter/butter_relay#14).
+    """
+    setup_logging(settings.log_level)
