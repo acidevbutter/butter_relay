@@ -66,3 +66,23 @@ class ProjectRead(BaseModel):
     delivery_config: dict[str, Any]
     is_active: bool
     created_at: datetime
+
+
+class ProjectDeliveryRead(BaseModel):
+    """What a company's own API key may see of its delivery setup."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    project_id: uuid.UUID = Field(validation_alias="id")
+    delivery_provider: DeliveryProvider
+    delivery_config: dict[str, Any]
+    default_sender_email: str
+    default_sender_name: str
+
+
+class ProjectDeliveryUpdate(BaseModel):
+    """Only the channel choice is API-key writable. Host/port overrides (and the
+    sender identity) stay admin-only: a leaked project key must not be able to
+    point that project's mail at an arbitrary host."""
+
+    delivery_provider: DeliveryProvider
