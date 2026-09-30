@@ -164,6 +164,22 @@ curl -s -o /dev/null -w '%{http_code}\n' -X PATCH "$BASE_URL/api/v1/projects/$PR
 
 ---
 
+### GET / PUT /api/v1/projects/{project_id}/delivery
+
+Read / choose **this project's** delivery channel. **Auth:** the project's own API key
+(`Authorization: Bearer brk_...`) — not the admin session; another project's key gets 403.
+Only `delivery_provider` (`brevo` | `smtp`) is writable this way; SMTP host/port and sender are
+admin-only (`PATCH /api/v1/projects/{id}` or the admin UI).
+
+```bash
+curl -s "$BASE_URL/api/v1/projects/$PROJECT_ID/delivery" -H "Authorization: Bearer $API_KEY" | jq
+curl -s -X PUT "$BASE_URL/api/v1/projects/$PROJECT_ID/delivery" \
+  -H "Authorization: Bearer $API_KEY" -H 'content-type: application/json' \
+  -d '{"delivery_provider": "smtp"}' | jq
+```
+
+---
+
 ## API Keys — `/api/v1/api-keys` (`app/api_keys/router.py`)
 
 All endpoints require a **valid API key** (`CurrentApiKey`), and every one of them
@@ -402,6 +418,20 @@ curl -s -o /dev/null -w '%{http_code}\n' -X POST \
   "$BASE_URL/api/v1/templates/00000000-0000-0000-0000-000000000099/preview" \
   -H "Authorization: Bearer $API_KEY" -H "Content-Type: application/json" -d '{}'
 ```
+
+---
+
+### POST /api/v1/templates/{template_id}/activate
+
+Rollback: makes this (older) version the active one and deactivates the current active version
+of the same key. **Auth:** the owning project's API key (403 for another project's key).
+
+```bash
+curl -s -X POST "$BASE_URL/api/v1/templates/$TEMPLATE_ID/activate" -H "Authorization: Bearer $API_KEY" | jq
+```
+
+Publishing (`POST /api/v1/templates/`) now returns 422 for invalid Jinja2 (subject/html), an
+invalid `variables_schema`, or a `key` outside `[A-Za-z0-9][A-Za-z0-9_.-]{0,149}`.
 
 ---
 

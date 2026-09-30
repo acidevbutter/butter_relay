@@ -27,7 +27,7 @@
 <div class="card" hx-get="/admin/messages" hx-trigger="every 10s" hx-select="#message-table" hx-target="#message-table" hx-swap="outerHTML">
     <table id="message-table">
         <thead>
-            <tr><th>To</th><th>Subject</th><th>Status</th><th>Attempts</th><th>Received</th><th></th></tr>
+            <tr><th>To</th><th>Subject</th><th>Status</th><th>Channel</th><th>Attempts</th><th>Received</th><th></th></tr>
         </thead>
         <tbody>
         {% for m in messages %}
@@ -35,6 +35,7 @@
                 <td>{{ m.to_email }}</td>
                 <td>{{ m.rendered_subject or "-" }}</td>
                 <td><span class="badge {{ m.status }}">{{ m.status }}</span></td>
+                <td class="muted">{{ m.provider or "-" }}</td>
                 <td>{{ m.attempts }}</td>
                 <td class="muted">{{ m.received_at }}</td>
                 <td>
@@ -47,7 +48,7 @@
                 </td>
             </tr>
         {% else %}
-            <tr><td colspan="6" class="muted">No messages match this filter.</td></tr>
+            <tr><td colspan="7" class="muted">No messages match this filter.</td></tr>
         {% endfor %}
         </tbody>
     </table>

@@ -4,6 +4,11 @@ Registro retroativo baseado em todos os commits da branch `master`.
 
 ## Unreleased
 
+- Docs: novo `docs/GUIA_FLUXO_E_IMPLEMENTACAO.md` (fluxo validado, canal de disparo por
+  company, passo a passo do relay e checklist do que falta no admin/backend DevButter);
+  README, `.env.example` (`SMTP_HOST`/`SMTP_PORT`) e `API_ROUTES_CURL.md` atualizados. O log
+  de mensagens do admin mostra o canal usado.
+
 - O worker Celery passa a usar o mesmo `setup_logging` da API (sinal `setup_logging` do
   Celery), emitindo logs/métricas estruturados com `service`/`environment` (#14).
 
