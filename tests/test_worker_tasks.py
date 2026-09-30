@@ -288,19 +288,21 @@ def test_seed_all_queues_uses_the_booting_consumer_not_a_broadcast(
     from unittest.mock import MagicMock
 
     import app.worker.queues as queues_module
+    from app.settings.config import settings
+    from app.worker.celery_app import celery_app
 
     async def _fake_queue_names() -> set[str]:
         return {"relay-crate-diggr"}
 
     broadcast = MagicMock()
     monkeypatch.setattr(queues_module, "_active_project_queue_names", _fake_queue_names)
-    monkeypatch.setattr(queues_module.celery_app.control, "add_consumer", broadcast)
+    monkeypatch.setattr(celery_app.control, "add_consumer", broadcast)
     consumer = MagicMock()
 
     queues_module.seed_all_queues(consumer=consumer)
 
     attached = {call.args[0] for call in consumer.add_task_queue.call_args_list}
-    assert attached == {"relay-crate-diggr", queues_module.settings.relay_queue_name}
+    assert attached == {"relay-crate-diggr", settings.relay_queue_name}
     broadcast.assert_not_called()
 
 
@@ -310,14 +312,16 @@ def test_seed_all_queues_falls_back_to_broadcast_without_a_consumer(
     from unittest.mock import MagicMock
 
     import app.worker.queues as queues_module
+    from app.settings.config import settings
+    from app.worker.celery_app import celery_app
 
     async def _fake_queue_names() -> set[str]:
         return set()
 
     broadcast = MagicMock()
     monkeypatch.setattr(queues_module, "_active_project_queue_names", _fake_queue_names)
-    monkeypatch.setattr(queues_module.celery_app.control, "add_consumer", broadcast)
+    monkeypatch.setattr(celery_app.control, "add_consumer", broadcast)
 
     queues_module.seed_all_queues()
 
-    broadcast.assert_called_once_with(queues_module.settings.relay_queue_name, reply=False)
+    broadcast.assert_called_once_with(settings.relay_queue_name, reply=False)
