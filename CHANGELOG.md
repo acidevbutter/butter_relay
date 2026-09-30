@@ -4,6 +4,11 @@ Registro retroativo baseado em todos os commits da branch `master`.
 
 ## Unreleased
 
+- Corrigido: cada retry do Celery criava uma nova linha `Message` com o mesmo
+  `broker_message_id`; na tentativa seguinte `MultipleResultsFound` derrubava a
+  mensagem antes de `MAX_RETRIES`. Agora há uma única linha por mensagem lógica,
+  com `attempts` contando as tentativas (#35).
+
 - Cada company (Project) passa a definir o próprio meio de disparo: novos campos
   `Project.delivery_provider` (`brevo` por padrão, inclusive em desenvolvimento —
   o Mailpit deixou de ser forçado pelo ambiente) e `Project.delivery_config`

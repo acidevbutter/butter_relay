@@ -108,7 +108,10 @@ async def process_message(
                     raise ValidationFailedError("NFS-e blob has no public_url")
                 render_payload["cta_link"] = public_url
 
-            message: Message = await message_service.create(
+            # A Celery retry reuses the task id: keep one row per logical message
+            # (attempts counts the tries) instead of inserting a duplicate per
+            # attempt (acidevbutter/butter_relay#35).
+            message: Message = existing or await message_service.create(
                 MessageCreate(
                     project_id=parsed_project_id,
                     template_id=template.id,
