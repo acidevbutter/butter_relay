@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from typing import Any
 
 from celery.signals import worker_ready
 
@@ -49,13 +50,25 @@ async def _active_project_queue_names() -> set[str]:
     return {queue_name_for(p.slug) for p in projects if p.is_active}
 
 
-def seed_all_queues() -> None:
+def seed_all_queues(consumer: Any = None) -> None:
+    """Start consuming every active project's queue plus the shared one.
+
+    `consumer` is the booting worker's own Consumer (the `worker_ready` sender).
+    Its add_task_queue() takes effect immediately; a control.add_consumer()
+    *broadcast* sent from inside worker_ready never reached the worker that
+    sent it, so after every restart only relay-shared was consumed
+    (acidevbutter/butter_relay#30). The broadcast remains only as a fallback
+    for callers that have no consumer at hand.
+    """
     queue_names = {settings.relay_queue_name, *asyncio.run(_active_project_queue_names())}
-    for queue_name in queue_names:
-        celery_app.control.add_consumer(queue_name, reply=False)
+    for queue_name in sorted(queue_names):
+        if consumer is not None:
+            consumer.add_task_queue(queue_name)
+        else:
+            celery_app.control.add_consumer(queue_name, reply=False)
     logger.info("worker seeded consumers for queues: %s", sorted(queue_names))
 
 
 @worker_ready.connect  # type: ignore[untyped-decorator]  # celery ships no type information
 def _on_worker_ready(sender: object = None, **kwargs: object) -> None:
-    seed_all_queues()
+    seed_all_queues(consumer=sender if hasattr(sender, "add_task_queue") else None)

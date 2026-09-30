@@ -20,7 +20,7 @@ from app.core.decorators import log_call
 from app.core.email_provider import EmailProvider, EmailSendError, get_email_provider
 from app.core.exceptions import NotFoundError, ValidationFailedError
 from app.core.metrics import emit_metrics
-from app.db.session import session_factory
+from app.db.session import engine, session_factory
 from app.messages.models import Message, MessageStatus
 from app.messages.repository import MessageRepository
 from app.messages.schemas import MessageCreate
@@ -144,6 +144,23 @@ async def process_message(
             raise
 
 
+async def process_message_isolated(*args: Any, **kwargs: Any) -> None:
+    """Runs process_message, then disposes the module-level engine's pool.
+
+    Every Celery task calls asyncio.run() -- a brand-new event loop -- but
+    app.db.session builds one engine (pooled asyncpg connections) at import
+    time. Connections left in the pool by a previous task are bound to that
+    task's now-closed loop, so the next task in the same fork process died
+    with "attached to a different loop" and the message was lost
+    (acidevbutter/butter_relay#29). Disposing inside the same loop that used
+    the pool gives each task a fresh one.
+    """
+    try:
+        await process_message(*args, **kwargs)
+    finally:
+        await engine.dispose()
+
+
 @celery_app.task(  # type: ignore[untyped-decorator]  # celery ships no type information
     bind=True,
     name=TASK_NAME,
@@ -179,7 +196,7 @@ def process_message_task(
     email_provider = get_email_provider(settings)
     try:
         asyncio.run(
-            process_message(
+            process_message_isolated(
                 self.request.id,
                 project_id,
                 template_key,
