@@ -325,3 +325,47 @@ def test_seed_all_queues_falls_back_to_broadcast_without_a_consumer(
     queues_module.seed_all_queues()
 
     broadcast.assert_called_once_with(settings.relay_queue_name, reply=False)
+
+
+async def test_retry_reuses_the_same_message_row_and_counts_attempts(
+    db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regression for #35: retries must not insert a row per attempt."""
+    import app.worker.tasks as tasks_module
+    from app.core.email_provider import EmailSendError
+
+    monkeypatch.setattr(tasks_module, "emit_metrics", AsyncMock())
+    project_id = await _seed_project_and_template(db_session)
+    fake_provider = AsyncMock()
+    fake_provider.send.side_effect = [
+        EmailSendError("boom 1"),
+        EmailSendError("boom 2"),
+        ProviderResult(provider_message_id="ok-3"),
+    ]
+    args = ("task-retry", str(project_id), "welcome_email", "t@example.com", {"name": "M"})
+
+    for _ in range(2):
+        with pytest.raises(EmailSendError):
+            await process_message(*args, fake_provider)
+    await process_message(*args, fake_provider)
+
+    messages = await MessageRepository(db_session).list()
+    assert len(messages) == 1
+    assert messages[0].status == MessageStatus.SENT
+    assert messages[0].attempts == 3
+    assert messages[0].provider_message_id == "ok-3"
+
+
+async def test_get_by_broker_message_id_tolerates_legacy_duplicate_rows(
+    db_session: AsyncSession,
+) -> None:
+    from app.messages.schemas import MessageCreate
+
+    project_id = await _seed_project_and_template(db_session)
+    repo = MessageRepository(db_session)
+    for _ in range(2):
+        await repo.create(
+            MessageCreate(project_id=project_id, to_email="a@b.co", broker_message_id="dup")
+        )
+
+    assert await repo.get_by_broker_message_id("dup") is not None
