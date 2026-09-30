@@ -19,15 +19,24 @@ def get_auth_service(db: DbSession) -> AuthService:
 AuthServiceDep = Annotated[AuthService, Depends(get_auth_service)]
 
 
-async def get_current_admin_user(request: Request, service: AuthServiceDep) -> AdminUser:
+async def get_current_admin_user(
+    request: Request, service: AuthServiceDep, db: DbSession
+) -> AdminUser:
     """For HTML dashboard routes (`/admin/*`) -- no valid session redirects to the
-    login page (see SessionRequiredError)."""
+    login page (see SessionRequiredError).
+
+    The returned user is detached from the request's session: a rollback (e.g. a
+    form that hit a unique constraint and re-renders with an error) expires every
+    attached instance, and the page header reading `admin_user.email` afterwards
+    raised MissingGreenlet -> HTTP 500.
+    """
     admin_user_id = request.session.get("admin_user_id")
     if admin_user_id is None:
         raise SessionRequiredError()
     admin_user = await service.get(uuid.UUID(admin_user_id))
     if admin_user is None or not admin_user.is_active:
         raise SessionRequiredError()
+    db.expunge(admin_user)
     return admin_user
 
 

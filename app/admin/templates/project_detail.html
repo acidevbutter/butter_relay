@@ -3,7 +3,31 @@
 {% block content %}
 <p><a class="link" href="/admin/projects">&larr; Projects</a></p>
 <h1>{{ project.name }} <span class="muted">({{ project.slug }})</span></h1>
-<p class="muted">Queue: <code>{{ project.queue_name }}</code> &middot; {{ "external" if project.external else "internal" }} project</p>
+<p class="muted">Queue: <code>{{ project.queue_name }}</code> &middot; {{ "external" if project.external else "internal" }} project &middot; delivery: <code>{{ project.delivery_provider }}</code>{% if not project.is_active %} &middot; <strong>inactive (messages are skipped)</strong>{% endif %}</p>
+{% if notice %}<div class="card" style="border-color: var(--green); color: var(--green)">{{ notice }}</div>{% endif %}
+{% if error %}<div class="card error" style="border-color: var(--pink)">{{ error }}</div>{% endif %}
+
+<div class="card">
+    <h3>Settings &amp; delivery channel</h3>
+    <form method="post" action="/admin/projects/{{ project.id }}/settings">
+        <label>Name</label>
+        <input type="text" name="name" required value="{{ project.name }}">
+        <label>Default sender email</label>
+        <input type="email" name="default_sender_email" required value="{{ project.default_sender_email }}">
+        <label>Default sender name</label>
+        <input type="text" name="default_sender_name" required value="{{ project.default_sender_name }}">
+        {% set values = {'delivery_provider': project.delivery_provider, 'smtp_host': project.delivery_config.get('smtp_host'), 'smtp_port': project.delivery_config.get('smtp_port')} %}
+        {% include "partials/_delivery_fields.html" %}
+        <label><input type="checkbox" name="external" value="true" {{ "checked" if project.external }}> External project (new API keys expire after 30 days)</label>
+        <label><input type="checkbox" name="is_active" value="true" {{ "checked" if project.is_active }}> Active (inactive projects are skipped by the worker)</label>
+        <button type="submit">Save settings</button>
+    </form>
+    <form method="post" action="/admin/projects/{{ project.id }}/test-send" style="margin-top: 16px;">
+        <label>Send a test e-mail through this project's channel</label>
+        <input type="email" name="to" required placeholder="you@company.com">
+        <button class="secondary" type="submit">Send test</button>
+    </form>
+</div>
 
 <div class="card">
     <h3>API keys</h3>
@@ -43,6 +67,7 @@
 
 <div class="card">
     <h3>Templates</h3>
+    <p class="muted">Each publish creates a new version and makes it the active one. Producers reference a template by its <em>key</em> in the task payload. Older versions can be re-activated (rollback).</p>
     <table>
         <thead><tr><th>Key</th><th>Version</th><th>Active</th><th>Subject</th><th></th></tr></thead>
         <tbody>
@@ -52,11 +77,18 @@
                 <td>v{{ t.version }}</td>
                 <td>{{ "yes" if t.is_active else "no" }}</td>
                 <td>{{ t.subject_template }}</td>
-                <td>
+                <td style="white-space: nowrap;">
                     <button class="secondary" type="button"
                             onclick="document.getElementById('preview-{{ t.id }}').classList.toggle('hidden')">
                         Preview
                     </button>
+                    <button class="secondary" type="button" onclick="editAsNewVersion('{{ t.id }}')">Edit as new version</button>
+                    {% if not t.is_active %}
+                    <form method="post" action="/admin/templates/{{ t.id }}/activate" style="display:inline">
+                        <button class="secondary" type="submit">Activate</button>
+                    </form>
+                    {% endif %}
+                    <script type="application/json" id="tpl-data-{{ t.id }}">{{ {"key": t.key, "subject_template": t.subject_template, "html_template": t.html_template, "variables_schema": (t.variables_schema | tojson if t.variables_schema else "")} | tojson }}</script>
                 </td>
             </tr>
             <tr id="preview-{{ t.id }}" class="hidden">
@@ -75,13 +107,15 @@
         {% endfor %}
         </tbody>
     </table>
-    <form method="post" action="/admin/projects/{{ project.id }}/templates" style="margin-top: 12px;">
-        <label>Template key</label>
-        <input type="text" name="key" required placeholder="welcome_email">
+    <form id="template-form" method="post" action="/admin/projects/{{ project.id }}/templates" style="margin-top: 12px;">
+        <label>Template key (letters, digits, _ - .)</label>
+        <input type="text" id="template_key" name="key" required placeholder="welcome_email" value="{{ form.get('key', '') }}">
         <label>Subject (Jinja2)</label>
-        <input type="text" id="subject_template" name="subject_template" required placeholder="Welcome, {{ '{{' }} name {{ '}}' }}!">
+        <input type="text" id="subject_template" name="subject_template" required placeholder="Welcome, {{ '{{' }} name {{ '}}' }}!" value="{{ form.get('subject_template', '') }}">
         <label>HTML body (Jinja2)</label>
-        <textarea id="html_template" name="html_template" rows="8" required placeholder="&lt;p&gt;Hi {{ '{{' }} name {{ '}}' }}&lt;/p&gt;"></textarea>
+        <textarea id="html_template" name="html_template" rows="8" required placeholder="&lt;p&gt;Hi {{ '{{' }} name {{ '}}' }}&lt;/p&gt;">{{ form.get('html_template', '') }}</textarea>
+        <label>Variables schema (optional JSON Schema; payloads that don't match are rejected)</label>
+        <textarea id="variables_schema" name="variables_schema" rows="4" placeholder='{"type": "object", "required": ["name"]}'>{{ form.get('variables_schema', '') }}</textarea>
         <button type="button" class="secondary" onclick="applyDevbutterStarter()">Use DevButter starter</button>
         <button type="submit">Publish new version</button>
     </form>
@@ -116,6 +150,14 @@
   </tr>
 </table>{% endraw %}</script>
 <script>
+function editAsNewVersion(templateId) {
+    var data = JSON.parse(document.getElementById("tpl-data-" + templateId).textContent);
+    document.getElementById("template_key").value = data.key;
+    document.getElementById("subject_template").value = data.subject_template;
+    document.getElementById("html_template").value = data.html_template;
+    document.getElementById("variables_schema").value = data.variables_schema;
+    document.getElementById("template-form").scrollIntoView({behavior: "smooth"});
+}
 function applyDevbutterStarter() {
     document.getElementById("subject_template").value =
         document.getElementById("devbutter-email-starter-subject").textContent.trim();
