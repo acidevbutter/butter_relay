@@ -4,6 +4,11 @@ Registro retroativo baseado em todos os commits da branch `master`.
 
 ## Unreleased
 
+- Novos `GET/PUT /api/v1/projects/{id}/delivery`, autenticados pela API key do próprio
+  projeto: o admin do DevButter (ou o app dono) lê e troca o canal de disparo da sua
+  company sem sessão de admin do relay. Só `delivery_provider` é gravável por chave;
+  host/porta SMTP e remetente continuam restritos ao admin.
+
 - Admin: a página do projeto ganhou "Settings & delivery channel" (nome, remetente, canal
   Brevo/SMTP, host/porta SMTP, externo, ativo), envio de teste pelo canal do projeto
   (`POST /admin/projects/{id}/test-send`), criação de projeto já com o canal, e gestão de

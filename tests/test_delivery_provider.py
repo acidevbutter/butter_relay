@@ -240,3 +240,71 @@ async def test_project_update_schema_only_sets_provided_fields() -> None:
     assert ProjectUpdate(delivery_provider=DeliveryProvider.SMTP).model_dump(
         exclude_unset=True
     ) == {"delivery_provider": DeliveryProvider.SMTP}
+
+
+# --- API-key scoped delivery endpoint ---------------------------------------------
+
+
+async def test_project_api_key_reads_and_switches_its_own_channel(client, db_session) -> None:
+    from tests.conftest import create_project_and_api_key
+
+    project_id, key = await create_project_and_api_key(db_session)
+    headers = {"Authorization": f"Bearer {key}"}
+
+    read = await client.get(f"/api/v1/projects/{project_id}/delivery", headers=headers)
+    assert read.status_code == 200
+    assert read.json()["project_id"] == project_id
+    assert read.json()["delivery_provider"] == "brevo"
+
+    switched = await client.put(
+        f"/api/v1/projects/{project_id}/delivery",
+        json={"delivery_provider": "smtp"},
+        headers=headers,
+    )
+    assert switched.status_code == 200
+    assert switched.json()["delivery_provider"] == "smtp"
+
+    again = await client.get(f"/api/v1/projects/{project_id}/delivery", headers=headers)
+    assert again.json()["delivery_provider"] == "smtp"
+
+
+async def test_delivery_endpoint_rejects_another_projects_key(client, db_session) -> None:
+    from tests.conftest import create_project_and_api_key
+
+    project_id, _ = await create_project_and_api_key(db_session, label="a")
+    _, other_key = await create_project_and_api_key(db_session, label="b")
+    headers = {"Authorization": f"Bearer {other_key}"}
+
+    assert (
+        await client.get(f"/api/v1/projects/{project_id}/delivery", headers=headers)
+    ).status_code == 403
+    assert (
+        await client.put(
+            f"/api/v1/projects/{project_id}/delivery",
+            json={"delivery_provider": "smtp"},
+            headers=headers,
+        )
+    ).status_code == 403
+
+
+async def test_delivery_endpoint_only_accepts_the_channel_choice(client, db_session) -> None:
+    from tests.conftest import create_project_and_api_key
+
+    project_id, key = await create_project_and_api_key(db_session)
+    headers = {"Authorization": f"Bearer {key}"}
+
+    response = await client.put(
+        f"/api/v1/projects/{project_id}/delivery",
+        json={"delivery_provider": "smtp", "delivery_config": {"smtp_host": "evil.example"}},
+        headers=headers,
+    )
+
+    assert response.status_code == 200
+    assert response.json()["delivery_config"] == {}  # extra field ignored, not applied
+
+
+async def test_delivery_endpoint_requires_authentication(client, db_session) -> None:
+    from tests.conftest import create_project_and_api_key
+
+    project_id, _ = await create_project_and_api_key(db_session)
+    assert (await client.get(f"/api/v1/projects/{project_id}/delivery")).status_code == 401
