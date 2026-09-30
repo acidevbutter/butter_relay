@@ -4,6 +4,17 @@ Registro retroativo baseado em todos os commits da branch `master`.
 
 ## Unreleased
 
+- Admin: a página do projeto ganhou "Settings & delivery channel" (nome, remetente, canal
+  Brevo/SMTP, host/porta SMTP, externo, ativo), envio de teste pelo canal do projeto
+  (`POST /admin/projects/{id}/test-send`), criação de projeto já com o canal, e gestão de
+  templates com `variables_schema`, "Edit as new version" e "Activate" (rollback).
+- Admin: formulários nunca mais devolvem 500/JSON cru — entrada inválida, slug duplicado e
+  falhas do provider re-renderizam a página com a mensagem e os valores digitados (#37).
+  O usuário admin da requisição é destacado da sessão (o rollback de um conflito derrubava
+  a renderização com `MissingGreenlet`). Reenvio manual passou a respeitar a política de
+  destinatários de não-produção e a marcar falhas de render/provider como `failed`.
+- Admin: previews de template em `iframe sandbox` (H-04 da auditoria).
+
 - Templates: a publicação agora valida o Jinja2 (assunto e HTML), o `variables_schema`
   (JSON Schema) e o formato da `key` (422 em vez de ativar uma versão quebrada); erros de
   renderização do Jinja viram `ValidationFailedError` (#38). Novo
