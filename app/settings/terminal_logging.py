@@ -34,14 +34,10 @@ class ServiceContextFilter(logging.Filter):
 
 
 class TerminalFormatter(logging.Formatter):
-    """Render a short terminal line; OTLP keeps the full structured record."""
+    """Render one short, human-readable line per log record (plus the traceback, if any)."""
 
     def format(self, record: logging.LogRecord) -> str:
-        event = getattr(
-            record,
-            "event",
-            "metric_emitted" if record.name == "metrics" else "log",
-        )
+        event = getattr(record, "event", "log")
         timestamp = datetime.fromtimestamp(record.created, tz=UTC).strftime("%Y-%m-%d %H:%M:%S")
         service = getattr(record, "service_name", "unknown")
         environment = getattr(record, "deployment_environment", "unknown")

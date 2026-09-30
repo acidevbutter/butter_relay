@@ -5,6 +5,8 @@ from urllib.parse import quote
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+SERVICE_NAME = "butter-relay"
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
@@ -12,13 +14,6 @@ class Settings(BaseSettings):
     environment: Literal["development", "staging", "preprod", "production"] = "development"
     debug: bool = False
     log_level: str = "INFO"
-
-    # app.core.telemetry reads these two directly; the rest of the OTEL_* vars
-    # (endpoint, protocol, headers, compression, ...) are standard OTel SDK
-    # env vars read natively by OTLPSpanExporter()/OTLPMetricExporter() --
-    # they don't need to be modeled here.
-    otel_enabled: bool = False
-    otel_service_name: str = "butter-relay"
 
     database_host: str = "shared-postgres"
     database_port: int = 5432

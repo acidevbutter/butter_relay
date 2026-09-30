@@ -20,7 +20,6 @@ import asyncio
 import enum
 import logging
 import smtplib
-import time
 import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -29,7 +28,6 @@ from typing import Any, Protocol
 
 import httpx
 
-from app.core.metrics import emit_metrics
 from app.settings.config import Settings
 
 logger = logging.getLogger(__name__)
@@ -90,22 +88,25 @@ class BrevoEmailProvider:
         owns_client = client is None
         if client is None:
             client = httpx.AsyncClient(timeout=10.0)
-        start = time.perf_counter()
         try:
             response = await client.post(BREVO_SEND_URL, json=payload, headers=headers)
-        except Exception:
-            await emit_metrics([("EmailProviderErrorCount", 1, "Count")], {"Provider": "brevo"})
+        except Exception as exc:
+            logger.warning(
+                "brevo request failed: %s",
+                type(exc).__name__,
+                extra={"event": "email_provider_error", "provider": "brevo"},
+            )
             raise
         finally:
             if owns_client:
                 await client.aclose()
 
-        await emit_metrics(
-            [("EmailProviderLatency", (time.perf_counter() - start) * 1000, "Milliseconds")],
-            {"Provider": "brevo"},
-        )
         if response.status_code >= 400:
-            await emit_metrics([("EmailProviderErrorCount", 1, "Count")], {"Provider": "brevo"})
+            logger.warning(
+                "brevo rejected the send: HTTP %s",
+                response.status_code,
+                extra={"event": "email_provider_error", "provider": "brevo"},
+            )
             raise EmailSendError(f"Brevo send failed ({response.status_code}): {response.text}")
 
         data = response.json()
@@ -136,16 +137,17 @@ class SmtpEmailProvider:
         message["To"] = to
         message.set_content(html, subtype="html")
 
-        start = time.perf_counter()
         try:
             await asyncio.to_thread(self._send_sync, message)
         except Exception as exc:
-            await emit_metrics([("EmailProviderErrorCount", 1, "Count")], {"Provider": "smtp"})
+            logger.warning(
+                "smtp send failed (%s:%s): %s",
+                self._host,
+                self._port,
+                type(exc).__name__,
+                extra={"event": "email_provider_error", "provider": "smtp"},
+            )
             raise EmailSendError(f"SMTP send failed ({self._host}:{self._port}): {exc}") from exc
-        await emit_metrics(
-            [("EmailProviderLatency", (time.perf_counter() - start) * 1000, "Milliseconds")],
-            {"Provider": "smtp"},
-        )
         return ProviderResult(provider_message_id=str(uuid.uuid4()))
 
     def _send_sync(self, message: EmailMessage) -> None:

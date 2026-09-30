@@ -25,11 +25,6 @@ bcrypt = "^4.2.0"
 itsdangerous = "^2.2.0"
 jsonschema = "^4.23.0"
 python-multipart = "^0.0.12"
-opentelemetry-sdk = "^1.44.0"
-opentelemetry-exporter-otlp-proto-http = "^1.44.0"
-opentelemetry-instrumentation-fastapi = "^0.65b0"
-opentelemetry-instrumentation-sqlalchemy = "^0.65b0"
-opentelemetry-instrumentation-httpx = "^0.65b0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.3.0"

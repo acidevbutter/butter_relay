@@ -56,16 +56,13 @@ async def _seed_project_and_template(db_session: AsyncSession) -> uuid.UUID:
 
 
 async def test_process_message_success_marks_message_sent(
-    db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+    db_session: AsyncSession
 ) -> None:
-    import app.worker.tasks as tasks_module
 
     project_id = await _seed_project_and_template(db_session)
 
     fake_provider = AsyncMock()
     fake_provider.send.return_value = ProviderResult(provider_message_id="brevo-1")
-    emit_mock = AsyncMock()
-    monkeypatch.setattr(tasks_module, "emit_metrics", emit_mock)
 
     await process_message(
         "task-123", str(project_id), "welcome_email", "test@example.com", {"name": "Marcos"},
@@ -79,8 +76,6 @@ async def test_process_message_success_marks_message_sent(
     assert messages[0].provider_message_id == "brevo-1"
     assert messages[0].broker_message_id == "task-123"
     fake_provider.send.assert_awaited_once()
-    emitted_names = [metric[0] for call in emit_mock.await_args_list for metric in call.args[0]]
-    assert emitted_names == ["MessagesProcessed", "MessagesSent"]
 
 
 async def test_process_message_provider_failure_marks_message_failed(
@@ -107,13 +102,10 @@ async def test_process_message_provider_failure_marks_message_failed(
 
 
 async def test_process_message_malformed_args_raises_before_any_send(
-    db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+    db_session: AsyncSession
 ) -> None:
-    import app.worker.tasks as tasks_module
 
     fake_provider = AsyncMock()
-    emit_mock = AsyncMock()
-    monkeypatch.setattr(tasks_module, "emit_metrics", emit_mock)
 
     with pytest.raises(MalformedMessageError):
         # missing template_key
@@ -122,9 +114,6 @@ async def test_process_message_malformed_args_raises_before_any_send(
         )
 
     fake_provider.send.assert_not_awaited()
-    emit_mock.assert_awaited_once_with(
-        [("MessagesMalformed", 1, "Count")], {"TemplateKey": "unknown"}
-    )
 
 
 class _FakeBlob:
@@ -174,14 +163,12 @@ async def _seed_nfse_template(db_session: AsyncSession) -> uuid.UUID:
 
 
 async def test_nota_fiscal_resolves_blob_public_url_as_cta(
-    db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+    db_session: AsyncSession
 ) -> None:
-    import app.worker.tasks as tasks_module
 
     project_id = await _seed_nfse_template(db_session)
     fake_provider = AsyncMock()
     fake_provider.send.return_value = ProviderResult(provider_message_id="brevo-nfse")
-    monkeypatch.setattr(tasks_module, "emit_metrics", AsyncMock())
     fake_blob = _FakeBlob()
     await process_message(
         "task-126",
@@ -206,14 +193,12 @@ async def test_nota_fiscal_resolves_blob_public_url_as_cta(
 
 
 async def test_duplicate_broker_message_id_does_not_resend(
-    db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+    db_session: AsyncSession
 ) -> None:
-    import app.worker.tasks as tasks_module
 
     project_id = await _seed_project_and_template(db_session)
     fake_provider = AsyncMock()
     fake_provider.send.return_value = ProviderResult(provider_message_id="brevo-1")
-    monkeypatch.setattr(tasks_module, "emit_metrics", AsyncMock())
     await process_message(
         "task-same", str(project_id), "welcome_email", "test@example.com", {"name": "Ana"},
         fake_provider,
@@ -226,16 +211,14 @@ async def test_duplicate_broker_message_id_does_not_resend(
 
 
 async def test_inactive_project_skips_send(
-    db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+    db_session: AsyncSession
 ) -> None:
-    import app.worker.tasks as tasks_module
 
     project_id = await _seed_project_and_template(db_session)
     project = await ProjectRepository(db_session).get(project_id)
     assert project is not None
     await ProjectRepository(db_session).update(project, ProjectUpdate(is_active=False))
     fake_provider = AsyncMock()
-    monkeypatch.setattr(tasks_module, "emit_metrics", AsyncMock())
     await process_message(
         "task-127", str(project_id), "welcome_email", "test@example.com", {"name": "Ana"},
         fake_provider,
@@ -252,7 +235,6 @@ async def test_process_message_isolated_disposes_engine_after_success(
     project_id = await _seed_project_and_template(db_session)
     fake_provider = AsyncMock()
     fake_provider.send.return_value = ProviderResult(provider_message_id="brevo-1")
-    monkeypatch.setattr(tasks_module, "emit_metrics", AsyncMock())
     fake_engine = AsyncMock()
     monkeypatch.setattr(tasks_module, "engine", fake_engine)
 
@@ -269,7 +251,6 @@ async def test_process_message_isolated_disposes_engine_after_failure(
 ) -> None:
     import app.worker.tasks as tasks_module
 
-    monkeypatch.setattr(tasks_module, "emit_metrics", AsyncMock())
     fake_engine = AsyncMock()
     monkeypatch.setattr(tasks_module, "engine", fake_engine)
 
@@ -328,13 +309,11 @@ def test_seed_all_queues_falls_back_to_broadcast_without_a_consumer(
 
 
 async def test_retry_reuses_the_same_message_row_and_counts_attempts(
-    db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+    db_session: AsyncSession
 ) -> None:
     """Regression for #35: retries must not insert a row per attempt."""
-    import app.worker.tasks as tasks_module
     from app.core.email_provider import EmailSendError
 
-    monkeypatch.setattr(tasks_module, "emit_metrics", AsyncMock())
     project_id = await _seed_project_and_template(db_session)
     fake_provider = AsyncMock()
     fake_provider.send.side_effect = [
