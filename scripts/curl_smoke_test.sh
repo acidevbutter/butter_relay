@@ -78,7 +78,7 @@ code=$(curl -s -o /dev/null -w "%{http_code}" "$BASE_URL/admin")
 check "GET /admin (no session, redirect to login)" 303 "$code"
 
 # --- create (or reuse) a project via the JSON API ---------------------------
-create_resp=$(curl -s -w "\n%{http_code}" -X POST "$BASE_URL/api/v1/projects/" \
+create_resp=$(curl -s -b "$COOKIE_JAR" -w "\n%{http_code}" -X POST "$BASE_URL/api/v1/projects/" \
     -H "Content-Type: application/json" \
     -d "{\"name\": \"Crate Diggr\", \"slug\": \"$PROJECT_SLUG\", \"default_sender_email\": \"noreply@devbutter.com\", \"default_sender_name\": \"DevButter\"}")
 create_code=$(echo "$create_resp" | tail -1)
@@ -88,7 +88,7 @@ if [ "$create_code" = "201" ]; then
     project_id=$(echo "$create_body" | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])")
     check "POST /api/v1/projects/ (create)" 201 "$create_code"
 elif [ "$create_code" = "409" ]; then
-    list_resp=$(curl -s "$BASE_URL/api/v1/projects/")
+    list_resp=$(curl -s -b "$COOKIE_JAR" "$BASE_URL/api/v1/projects/")
     project_id=$(echo "$list_resp" | python3 -c "
 import json, sys
 projects = json.load(sys.stdin)
@@ -101,9 +101,22 @@ else
 fi
 echo "     project_id=$project_id"
 
+# --- mint a project API key via the admin dashboard --------------------------
+# /api/v1/{templates,api-keys,messages} need `Authorization: Bearer <project key>`,
+# and the very first key of a project can only come from the admin session.
+key_page=$(curl -s -b "$COOKIE_JAR" -X POST "$BASE_URL/admin/projects/$project_id/api-keys" \
+    --data-urlencode "label=smoke-test-$(date +%s)")
+API_KEY=$(echo "$key_page" | grep -o 'brk_[A-Za-z0-9_-]*' | head -1)
+if [ -n "$API_KEY" ]; then
+    check "POST /admin/projects/{id}/api-keys (mint key)" ok ok
+else
+    check "POST /admin/projects/{id}/api-keys (mint key)" ok "no key in response"
+fi
+AUTH_HEADER="Authorization: Bearer $API_KEY"
+
 # --- publish a template ------------------------------------------------------
 template_resp=$(curl -s -w "\n%{http_code}" -X POST "$BASE_URL/api/v1/templates/" \
-    -H "Content-Type: application/json" \
+    -H "$AUTH_HEADER" -H "Content-Type: application/json" \
     -d "{\"project_id\": \"$project_id\", \"key\": \"welcome_email\", \"subject_template\": \"Welcome, {{ name }}!\", \"html_template\": \"<p>Hi {{ name }}</p>\"}")
 template_code=$(echo "$template_resp" | tail -1)
 template_body=$(echo "$template_resp" | sed '$d')
@@ -113,7 +126,7 @@ echo "     template_id=$template_id"
 
 # --- preview the template ----------------------------------------------------
 preview_resp=$(curl -s -w "\n%{http_code}" -X POST "$BASE_URL/api/v1/templates/$template_id/preview" \
-    -H "Content-Type: application/json" \
+    -H "$AUTH_HEADER" -H "Content-Type: application/json" \
     -d '{"payload": {"name": "Marcos"}}')
 preview_code=$(echo "$preview_resp" | tail -1)
 preview_body=$(echo "$preview_resp" | sed '$d')
@@ -122,14 +135,39 @@ echo "     rendered subject: $(echo "$preview_body" | python3 -c "import json,sy
 
 # --- generate an API key -----------------------------------------------------
 api_key_resp=$(curl -s -w "\n%{http_code}" -X POST "$BASE_URL/api/v1/api-keys/" \
-    -H "Content-Type: application/json" \
+    -H "$AUTH_HEADER" -H "Content-Type: application/json" \
     -d "{\"project_id\": \"$project_id\", \"label\": \"smoke-test\"}")
 api_key_code=$(echo "$api_key_resp" | tail -1)
 check "POST /api/v1/api-keys/ (create)" 201 "$api_key_code"
 
 # --- list messages (the email log) ------------------------------------------
-messages_code=$(curl -s -o /dev/null -w "%{http_code}" "$BASE_URL/api/v1/messages/?project_id=$project_id")
+messages_code=$(curl -s -H "$AUTH_HEADER" -o /dev/null -w "%{http_code}" "$BASE_URL/api/v1/messages/?project_id=$project_id")
 check "GET /api/v1/messages/" 200 "$messages_code"
+
+# --- end-to-end: publish a Celery task and wait for the worker to deliver it ---
+# Redis -> worker -> render -> provider -> messages row. Requires the worker container.
+docker compose exec -T api python -c "
+from celery import Celery
+from app.settings.config import settings
+Celery('smoke-test', broker=settings.redis_url).send_task(
+    'butter_relay.process_message',
+    kwargs={'project_id': '$project_id', 'template_key': 'welcome_email',
+            'to': 'smoke@example.com', 'payload': {'name': 'Smoke'}},
+    queue=f'relay-$PROJECT_SLUG',
+)
+" > /dev/null 2>&1
+final_status="timeout"
+for _ in $(seq 1 20); do
+    final_status=$(curl -s -H "$AUTH_HEADER" "$BASE_URL/api/v1/messages/?project_id=$project_id" \
+        | python3 -c "
+import json, sys
+msgs = [m for m in json.load(sys.stdin) if m['to_email'] == 'smoke@example.com']
+print(msgs[0]['status'] if msgs else 'waiting')
+" 2>/dev/null || echo waiting)
+    [ "$final_status" = "sent" ] || [ "$final_status" = "failed" ] && break
+    sleep 1
+done
+check "worker delivered message (queue relay-$PROJECT_SLUG)" sent "$final_status"
 
 # --- OpenAPI schema loads -----------------------------------------------------
 code=$(curl -s -o /dev/null -w "%{http_code}" "$BASE_URL/docs")
