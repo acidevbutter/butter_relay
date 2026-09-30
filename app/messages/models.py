@@ -25,6 +25,8 @@ class Message(Base):
     # Reserved for future delivery channels (in_app, push, ...) -- only "email" is
     # actually delivered today; see core/email_provider.py and the plan notes on scope.
     channel: Mapped[str] = mapped_column(String(20), default="email")
+    # Which delivery provider handled it (the project's choice at send time).
+    provider: Mapped[str | None] = mapped_column(String(20), default=None)
     to_email: Mapped[str] = mapped_column(String(320))
     payload: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     rendered_subject: Mapped[str | None] = mapped_column(String(500), default=None)

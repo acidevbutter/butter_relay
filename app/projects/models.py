@@ -1,9 +1,11 @@
 import uuid
 from datetime import datetime
+from typing import Any
 
-from sqlalchemy import Boolean, DateTime, String, func
+from sqlalchemy import JSON, Boolean, DateTime, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
+from app.core.email_provider import DeliveryProvider
 from app.db.base import Base
 
 
@@ -25,6 +27,15 @@ class Project(Base):
     external: Mapped[bool] = mapped_column(Boolean, default=False)
     default_sender_email: Mapped[str] = mapped_column(String(320))
     default_sender_name: Mapped[str] = mapped_column(String(200))
+    # How this company's e-mail leaves the relay (see core/email_provider.py).
+    # Brevo is the default; delivery_config holds non-secret channel options
+    # (today: smtp_host / smtp_port for the "smtp" provider).
+    delivery_provider: Mapped[str] = mapped_column(
+        String(20),
+        default=DeliveryProvider.BREVO.value,
+        server_default=DeliveryProvider.BREVO.value,
+    )
+    delivery_config: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 

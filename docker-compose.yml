@@ -54,6 +54,9 @@ services:
       REDIS_URL: redis://redis:6379/0
     volumes:
       - ./app:/app/app
+      # The entrypoint runs `alembic upgrade head` on boot; without the mounted
+      # migrations a worker restart fails after any new revision (image is stale).
+      - ./alembic:/app/alembic
     networks:
       default:
       devbutter_shared:
@@ -62,6 +65,9 @@ services:
         - path: ./app
           action: sync+restart
           target: /app/app
+        - path: ./alembic
+          action: sync+restart
+          target: /app/alembic
 
 networks:
   default:

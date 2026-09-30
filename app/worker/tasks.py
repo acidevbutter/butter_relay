@@ -17,7 +17,11 @@ from typing import Any
 
 from app.core.blob_client import BlobClient, get_blob_client
 from app.core.decorators import log_call
-from app.core.email_provider import EmailProvider, EmailSendError, get_email_provider
+from app.core.email_provider import (
+    EmailProvider,
+    EmailSendError,
+    get_email_provider_for_project,
+)
 from app.core.exceptions import NotFoundError, ValidationFailedError
 from app.core.metrics import emit_metrics
 from app.db.session import engine, session_factory
@@ -61,9 +65,12 @@ async def process_message(
     template_key: str,
     to_email: str,
     payload: dict[str, Any] | None,
-    email_provider: EmailProvider,
+    email_provider: EmailProvider | None = None,
     blob_client: BlobClient | None = None,
 ) -> None:
+    """`email_provider` is an override (tests); normally it is resolved from the
+    project's own `delivery_provider`/`delivery_config` once the project is loaded.
+    """
     blob = blob_client or get_blob_client()
     async with session_factory() as session:
         project_service = ProjectService(ProjectRepository(session))
@@ -108,6 +115,7 @@ async def process_message(
                     to_email=to_email,
                     payload=render_payload,
                     broker_message_id=broker_message_id,
+                    provider=project.delivery_provider,
                 )
             )
 
@@ -121,7 +129,10 @@ async def process_message(
                 await emit_metrics([("MessagesFailed", 1, "Count")], dimensions)
                 return
 
-            result = await email_provider.send(
+            provider = email_provider or get_email_provider_for_project(
+                project.delivery_provider, project.delivery_config, settings
+            )
+            result = await provider.send(
                 to=to_email,
                 subject=subject,
                 html=html,
@@ -193,17 +204,9 @@ def process_message_task(
     with a bounded, backed-off retry that gives up loudly instead of
     spinning.
     """
-    email_provider = get_email_provider(settings)
     try:
         asyncio.run(
-            process_message_isolated(
-                self.request.id,
-                project_id,
-                template_key,
-                to,
-                payload,
-                email_provider,
-            )
+            process_message_isolated(self.request.id, project_id, template_key, to, payload)
         )
     except MalformedMessageError as exc:
         logger.error("dropping malformed relay message %s: %s", self.request.id, exc.detail)

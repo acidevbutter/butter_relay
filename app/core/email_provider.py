@@ -1,24 +1,31 @@
 """Email delivery abstraction.
 
 EmailProvider is a Protocol so the worker/service layer never depends on a
-specific vendor SDK. BrevoEmailProvider is the only implementation built
-today. The planned next implementation is `SesEmailProvider` (IAM-authenticated,
-no separate API key/account needed since deployment is already on AWS) -- not
-built in this pass, just designed for: swapping providers only means adding a
-new class here and changing the dependency wired in app/messages/router.py or
-app/worker/consumer.py, nothing in the service layer.
+specific vendor SDK. Each company (Project) picks its own delivery channel
+(`Project.delivery_provider`, edited in the relay admin or through the API):
+
+- `brevo` (default everywhere, including development): Brevo transactional API,
+  authenticated with the shared BREVO_API_KEY.
+- `smtp`: plain SMTP -- the mailpit sandbox of the local stack by default
+  (SMTP_HOST/SMTP_PORT), or a host/port stored in the project's delivery_config.
+
+`get_email_provider_for_project` is the only place that maps a stored provider
+name to an implementation; adding a channel means one new class here, one enum
+member, and one branch in that factory -- nothing in the worker or services.
 """
 
 from __future__ import annotations
 
 import asyncio
+import enum
 import logging
 import smtplib
 import time
 import uuid
+from collections.abc import Mapping
 from dataclasses import dataclass
 from email.message import EmailMessage
-from typing import Protocol
+from typing import Any, Protocol
 
 import httpx
 
@@ -28,6 +35,11 @@ from app.settings.config import Settings
 logger = logging.getLogger(__name__)
 
 BREVO_SEND_URL = "https://api.brevo.com/v3/smtp/email"
+
+
+class DeliveryProvider(str, enum.Enum):
+    BREVO = "brevo"
+    SMTP = "smtp"
 
 
 @dataclass
@@ -101,8 +113,8 @@ class BrevoEmailProvider:
 
 
 class SmtpEmailProvider:
-    """Plain SMTP delivery for local dev -- talks to mailpit (no TLS/auth),
-    never used outside environment == "development" (see get_email_provider).
+    """Plain SMTP delivery (no TLS/auth): the mailpit sandbox in local dev, or a
+    project-specific relay host chosen in the admin.
     """
 
     def __init__(self, host: str, port: int):
@@ -127,9 +139,9 @@ class SmtpEmailProvider:
         start = time.perf_counter()
         try:
             await asyncio.to_thread(self._send_sync, message)
-        except Exception:
+        except Exception as exc:
             await emit_metrics([("EmailProviderErrorCount", 1, "Count")], {"Provider": "smtp"})
-            raise
+            raise EmailSendError(f"SMTP send failed ({self._host}:{self._port}): {exc}") from exc
         await emit_metrics(
             [("EmailProviderLatency", (time.perf_counter() - start) * 1000, "Milliseconds")],
             {"Provider": "smtp"},
@@ -141,7 +153,21 @@ class SmtpEmailProvider:
             client.send_message(message)
 
 
-def get_email_provider(settings: Settings) -> EmailProvider:
-    if settings.environment == "development":
-        return SmtpEmailProvider(host=settings.smtp_host, port=settings.smtp_port)
-    return BrevoEmailProvider(api_key=settings.brevo_api_key)
+def get_email_provider_for_project(
+    provider: str, config: Mapping[str, Any] | None, settings: Settings
+) -> EmailProvider:
+    """Resolves a project's stored delivery settings to a provider instance.
+
+    Takes plain values (not the Project ORM object) so core/ never imports a
+    domain package. An unknown provider name fails loudly instead of silently
+    falling back to another channel.
+    """
+    config = config or {}
+    if provider == DeliveryProvider.BREVO.value:
+        return BrevoEmailProvider(api_key=settings.brevo_api_key)
+    if provider == DeliveryProvider.SMTP.value:
+        return SmtpEmailProvider(
+            host=str(config.get("smtp_host") or settings.smtp_host),
+            port=int(config.get("smtp_port") or settings.smtp_port),
+        )
+    raise EmailSendError(f"Unknown delivery provider {provider!r}")
