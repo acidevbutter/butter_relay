@@ -241,3 +241,83 @@ async def test_inactive_project_skips_send(
         fake_provider,
     )
     fake_provider.send.assert_not_awaited()
+
+
+async def test_process_message_isolated_disposes_engine_after_success(
+    db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regression for #29: the asyncpg pool must not outlive the task's event loop."""
+    import app.worker.tasks as tasks_module
+
+    project_id = await _seed_project_and_template(db_session)
+    fake_provider = AsyncMock()
+    fake_provider.send.return_value = ProviderResult(provider_message_id="brevo-1")
+    monkeypatch.setattr(tasks_module, "emit_metrics", AsyncMock())
+    fake_engine = AsyncMock()
+    monkeypatch.setattr(tasks_module, "engine", fake_engine)
+
+    await tasks_module.process_message_isolated(
+        "task-iso-1", str(project_id), "welcome_email", "a@example.com", {"name": "A"},
+        fake_provider,
+    )
+
+    fake_engine.dispose.assert_awaited_once()
+
+
+async def test_process_message_isolated_disposes_engine_after_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import app.worker.tasks as tasks_module
+
+    monkeypatch.setattr(tasks_module, "emit_metrics", AsyncMock())
+    fake_engine = AsyncMock()
+    monkeypatch.setattr(tasks_module, "engine", fake_engine)
+
+    with pytest.raises(MalformedMessageError):
+        await tasks_module.process_message_isolated(
+            "task-iso-2", "not-a-uuid", "welcome_email", "a@example.com", {}, AsyncMock()
+        )
+
+    fake_engine.dispose.assert_awaited_once()
+
+
+def test_seed_all_queues_uses_the_booting_consumer_not_a_broadcast(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression for #30: worker_ready must attach queues to its own consumer."""
+    from unittest.mock import MagicMock
+
+    import app.worker.queues as queues_module
+
+    async def _fake_queue_names() -> set[str]:
+        return {"relay-crate-diggr"}
+
+    broadcast = MagicMock()
+    monkeypatch.setattr(queues_module, "_active_project_queue_names", _fake_queue_names)
+    monkeypatch.setattr(queues_module.celery_app.control, "add_consumer", broadcast)
+    consumer = MagicMock()
+
+    queues_module.seed_all_queues(consumer=consumer)
+
+    attached = {call.args[0] for call in consumer.add_task_queue.call_args_list}
+    assert attached == {"relay-crate-diggr", queues_module.settings.relay_queue_name}
+    broadcast.assert_not_called()
+
+
+def test_seed_all_queues_falls_back_to_broadcast_without_a_consumer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from unittest.mock import MagicMock
+
+    import app.worker.queues as queues_module
+
+    async def _fake_queue_names() -> set[str]:
+        return set()
+
+    broadcast = MagicMock()
+    monkeypatch.setattr(queues_module, "_active_project_queue_names", _fake_queue_names)
+    monkeypatch.setattr(queues_module.celery_app.control, "add_consumer", broadcast)
+
+    queues_module.seed_all_queues()
+
+    broadcast.assert_called_once_with(queues_module.settings.relay_queue_name, reply=False)

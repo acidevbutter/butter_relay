@@ -4,6 +4,14 @@ Registro retroativo baseado em todos os commits da branch `master`.
 
 ## Unreleased
 
+- Corrigido: o worker perdia toda mensagem após a primeira de cada processo Celery
+  (`RuntimeError: ... attached to a different loop`), porque cada task usa um event
+  loop novo mas o pool asyncpg do engine global sobrevivia à task anterior. O engine
+  agora é descartado ao fim de cada task (`process_message_isolated`, #29).
+- Corrigido: após reiniciar/deploy, o worker só consumia `relay-shared`; o broadcast
+  `add_consumer` feito dentro de `worker_ready` nunca chegava ao próprio worker. As
+  filas por projeto agora são anexadas direto ao consumer que está subindo (#30).
+
 - Probes de saúde não geram mais logs ou métricas de requisição. O terminal
   passa a exibir uma linha curta por evento, enquanto o handler OTLP envia os
   atributos estruturados diretamente ao New Relic quando há endpoint configurado.
