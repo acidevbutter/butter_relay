@@ -369,3 +369,20 @@ async def test_get_by_broker_message_id_tolerates_legacy_duplicate_rows(
         )
 
     assert await repo.get_by_broker_message_id("dup") is not None
+
+
+def test_worker_logging_uses_the_shared_structured_setup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression for #14: the Celery worker must install the app's logging config."""
+    from unittest.mock import MagicMock
+
+    import app.worker.celery_app as celery_module
+    from app.settings.config import settings
+
+    setup = MagicMock()
+    monkeypatch.setattr(celery_module, "setup_logging", setup)
+
+    celery_module._configure_worker_logging()
+
+    setup.assert_called_once_with(settings.log_level)

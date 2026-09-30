@@ -4,6 +4,9 @@ Registro retroativo baseado em todos os commits da branch `master`.
 
 ## Unreleased
 
+- O worker Celery passa a usar o mesmo `setup_logging` da API (sinal `setup_logging` do
+  Celery), emitindo logs/métricas estruturados com `service`/`environment` (#14).
+
 - Novos `GET/PUT /api/v1/projects/{id}/delivery`, autenticados pela API key do próprio
   projeto: o admin do DevButter (ou o app dono) lê e troca o canal de disparo da sua
   company sem sessão de admin do relay. Só `delivery_provider` é gravável por chave;
