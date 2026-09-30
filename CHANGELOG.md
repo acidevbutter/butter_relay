@@ -4,6 +4,11 @@ Registro retroativo baseado em todos os commits da branch `master`.
 
 ## Unreleased
 
+- Templates: a publicação agora valida o Jinja2 (assunto e HTML), o `variables_schema`
+  (JSON Schema) e o formato da `key` (422 em vez de ativar uma versão quebrada); erros de
+  renderização do Jinja viram `ValidationFailedError` (#38). Novo
+  `POST /api/v1/templates/{id}/activate` para voltar a uma versão anterior.
+
 - Corrigido: cada retry do Celery criava uma nova linha `Message` com o mesmo
   `broker_message_id`; na tentativa seguinte `MultipleResultsFound` derrubava a
   mensagem antes de `MAX_RETRIES`. Agora há uma única linha por mensagem lógica,
