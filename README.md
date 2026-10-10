@@ -59,6 +59,10 @@ sequenceDiagram
     Redis-->>W: deliver task
     W->>DB: load Project + active Template
     W->>DB: insert Message(status=pending)
+    opt payload has blob_id
+        W->>W: resolve public_url from Butter Blob
+        Note over W,DB: Blob failure updates Message(status=failed)<br/>before Celery retry
+    end
     W->>W: validate schema and render subject/html
     W->>DB: update Message(status=processing, attempts += 1)
     W->>Brevo: send email
@@ -69,7 +73,7 @@ sequenceDiagram
     else failure
         Brevo-->>W: error
         W->>DB: update Message(status=failed, last_error)
-        Note over W,Redis: autoretry with exponential backoff,<br/>up to MAX_RETRIES, then FAILURE for good
+        Note over W,Redis: Brevo transport errors also retry with backoff,<br/>up to MAX_RETRIES, then FAILURE for good
     end
 ```
 

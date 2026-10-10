@@ -90,13 +90,13 @@ class BrevoEmailProvider:
             client = httpx.AsyncClient(timeout=10.0)
         try:
             response = await client.post(BREVO_SEND_URL, json=payload, headers=headers)
-        except Exception as exc:
+        except httpx.HTTPError as exc:
             logger.warning(
                 "brevo request failed: %s",
                 type(exc).__name__,
                 extra={"event": "email_provider_error", "provider": "brevo"},
             )
-            raise
+            raise EmailSendError(f"Brevo request failed: {type(exc).__name__}") from exc
         finally:
             if owns_client:
                 await client.aclose()

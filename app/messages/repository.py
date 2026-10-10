@@ -1,5 +1,6 @@
 import uuid
 from datetime import UTC, datetime
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -46,9 +47,13 @@ class MessageRepository:
         await self.session.refresh(message)
         return message
 
-    async def mark_processing(self, message: Message, rendered_subject: str) -> Message:
+    async def mark_processing(
+        self, message: Message, rendered_subject: str, payload: dict[str, Any] | None = None
+    ) -> Message:
         message.status = MessageStatus.PROCESSING
         message.rendered_subject = rendered_subject
+        if payload is not None:
+            message.payload = payload
         message.attempts += 1
         await self.session.commit()
         await self.session.refresh(message)

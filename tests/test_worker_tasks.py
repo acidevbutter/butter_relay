@@ -2,11 +2,13 @@ import uuid
 from typing import cast
 from unittest.mock import AsyncMock
 
+import httpx
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.blob_client import BlobClient
-from app.core.email_provider import ProviderResult
+from app.core.email_provider import BrevoEmailProvider, EmailSendError, ProviderResult
+from app.core.exceptions import ValidationFailedError
 from app.messages.models import MessageStatus
 from app.messages.repository import MessageRepository
 from app.projects.repository import ProjectRepository
@@ -101,6 +103,55 @@ async def test_process_message_provider_failure_marks_message_failed(
     assert "401" in messages[0].last_error
 
 
+async def test_brevo_transport_failure_marks_message_failed_and_is_retryable(
+    db_session: AsyncSession,
+) -> None:
+    project_id = await _seed_project_and_template(db_session)
+
+    def fail_connection(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("connection unavailable")
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(fail_connection)) as client:
+        provider = BrevoEmailProvider(api_key="test-key", client=client)
+        with pytest.raises(EmailSendError, match="Brevo request failed: ConnectError"):
+            await process_message(
+                "task-transport",
+                str(project_id),
+                "welcome_email",
+                "test@example.com",
+                {"name": "Marcos"},
+                provider,
+            )
+
+    messages = await MessageRepository(db_session).list()
+    assert len(messages) == 1
+    assert messages[0].status == MessageStatus.FAILED
+    assert messages[0].attempts == 1
+    assert messages[0].last_error == "Brevo request failed: ConnectError"
+
+
+async def test_unexpected_provider_error_does_not_leave_message_processing(
+    db_session: AsyncSession,
+) -> None:
+    project_id = await _seed_project_and_template(db_session)
+    fake_provider = AsyncMock()
+    fake_provider.send.side_effect = RuntimeError("unexpected failure")
+
+    with pytest.raises(RuntimeError, match="unexpected failure"):
+        await process_message(
+            "task-unexpected",
+            str(project_id),
+            "welcome_email",
+            "test@example.com",
+            {"name": "Marcos"},
+            fake_provider,
+        )
+
+    message = (await MessageRepository(db_session).list())[0]
+    assert message.status == MessageStatus.FAILED
+    assert message.last_error == "RuntimeError"
+
+
 async def test_process_message_malformed_args_raises_before_any_send(
     db_session: AsyncSession
 ) -> None:
@@ -190,6 +241,42 @@ async def test_nota_fiscal_resolves_blob_public_url_as_cta(
     html = fake_provider.send.await_args.kwargs["html"]
     assert "https://blob.test/v1/public/nfse/n.pdf" in html
     assert fake_blob.ids == ["11111111-1111-1111-1111-111111111111"]
+
+
+async def test_blob_failure_is_logged_and_retry_reuses_message(
+    db_session: AsyncSession,
+) -> None:
+    project_id = await _seed_nfse_template(db_session)
+    fake_provider = AsyncMock()
+    fake_provider.send.return_value = ProviderResult(provider_message_id="brevo-nfse")
+    payload = {
+        "name": "Ana",
+        "title": "Nota emitida",
+        "message": "Disponível",
+        "cta_text": "Abrir",
+        "logo_url": "https://devbutter.com/logo.png",
+        "blob_id": "11111111-1111-1111-1111-111111111111",
+        "nfse_number": "99",
+    }
+    args = (
+        "task-blob-retry", str(project_id), "nota_fiscal_emitida", "cliente@example.com", payload
+    )
+
+    with pytest.raises(ValidationFailedError, match="public_url"):
+        await process_message(*args, fake_provider, blob_client=cast(BlobClient, _FakeBlob(None)))
+
+    messages = await MessageRepository(db_session).list()
+    assert len(messages) == 1
+    assert messages[0].status == MessageStatus.FAILED
+    assert "public_url" in (messages[0].last_error or "")
+    assert messages[0].broker_message_id == "task-blob-retry"
+    fake_provider.send.assert_not_awaited()
+
+    await process_message(*args, fake_provider, blob_client=cast(BlobClient, _FakeBlob()))
+    messages = await MessageRepository(db_session).list()
+    assert len(messages) == 1
+    assert messages[0].status == MessageStatus.SENT
+    assert messages[0].payload["cta_link"].startswith("https://blob.test/")
 
 
 async def test_duplicate_broker_message_id_does_not_resend(

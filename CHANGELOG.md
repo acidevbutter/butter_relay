@@ -4,6 +4,12 @@ Registro retroativo baseado em todos os commits da branch `master`.
 
 ## Unreleased
 
+- Falhas de transporte com Brevo agora são convertidas em `EmailSendError`, registradas
+  como `failed` e cobertas pelo retry do Celery. O worker cria a linha `Message`
+  antes de consultar Butter Blob, registrando falhas de resolução e reutilizando
+  a mesma linha no retry; erros inesperados após a criação também saem de
+  `processing` para `failed`.
+
 - Removidos OpenTelemetry (traces, métricas e export OTLP de logs) e as linhas JSON
   `metric emitted` (`app/core/telemetry.py`, `app/core/metrics.py`, variáveis `OTEL_*`,
   dependências `opentelemetry-*`): o export de métricas ao New Relic falhava com `401` e

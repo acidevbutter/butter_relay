@@ -111,7 +111,7 @@ async def test_brevo_failures_log_provider_error_without_recipient_or_body(
     assert "test-key" not in message
 
 
-async def test_brevo_transport_error_is_logged_and_reraised(
+async def test_brevo_transport_error_is_logged_and_wrapped_for_retry(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     def _boom(request: httpx.Request) -> httpx.Response:
@@ -122,7 +122,7 @@ async def test_brevo_transport_error_is_logged_and_reraised(
 
     with (
         caplog.at_level(logging.WARNING, logger="app.core.email_provider"),
-        pytest.raises(httpx.ConnectError),
+        pytest.raises(EmailSendError, match="Brevo request failed: ConnectError"),
     ):
         await provider.send(to="a@b.co", subject="s", html="<p>x</p>", from_email="f@b.co")
     await client.aclose()
