@@ -1,4 +1,5 @@
 import logging
+import secrets
 import time
 import uuid
 
@@ -80,7 +81,46 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
         return response
 
 
+def build_csp(nonce: str) -> str:
+    """CSP for the admin HTML pages (DVB-205). Scripts need the per-request nonce
+    (plus the pinned htmx CDN), so injected inline script/handlers never run; the
+    template previews are sandboxed srcdoc iframes that inherit this policy too.
+    Remote images stay allowed so e-mail previews with hosted logos render.
+    """
+    return "; ".join(
+        [
+            "default-src 'none'",
+            f"script-src 'nonce-{nonce}' https://unpkg.com",
+            "style-src 'self' 'unsafe-inline'",
+            "img-src 'self' data: https:",
+            "connect-src 'self'",
+            "form-action 'self'",
+            "frame-ancestors 'none'",
+            "base-uri 'none'",
+            "object-src 'none'",
+        ]
+    )
+
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """Defensive headers on every response, plus a nonce-based CSP on HTML pages."""
+
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
+        nonce = secrets.token_urlsafe(16)
+        request.state.csp_nonce = nonce
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Referrer-Policy"] = "same-origin"
+        if response.headers.get("content-type", "").startswith("text/html") and not (
+            request.url.path.startswith(("/docs", "/redoc"))
+        ):
+            response.headers["Content-Security-Policy"] = build_csp(nonce)
+        return response
+
+
 def register_middleware(app: FastAPI) -> None:
+    app.add_middleware(SecurityHeadersMiddleware)
     app.add_middleware(RequestContextMiddleware)
     app.add_middleware(
         SessionMiddleware,
