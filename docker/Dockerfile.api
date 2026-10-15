@@ -20,6 +20,7 @@ RUN groupadd --system --gid 10001 app \
     && useradd --system --uid 10001 --gid app --home-dir /app app
 
 COPY --chown=app:app app ./app
+COPY --chown=app:app scripts ./scripts
 COPY --chown=app:app alembic ./alembic
 COPY --chown=app:app alembic.ini ./
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh

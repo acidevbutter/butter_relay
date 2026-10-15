@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width">
+  <title>DevButter</title>
+</head>
+<body style="margin:0;background:#e9eaee;padding:24px 12px;font-family:Arial,sans-serif">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0"
+    style="max-width:600px;margin:auto;background:#0b0f18;border-radius:16px">
+    <tr>
+      <td style="height:3px;background:#79e59b;border-radius:16px 16px 0 0"></td>
+    </tr>
+    <tr>
+      <td style="padding:32px 36px;color:#f5f7fb">
+        <p style="margin:0 0 12px;color:#9ca6b5">Olá, {{ name | default('') }}</p>
+        {% if quote_reference %}
+        <p style="margin:0 0 8px;color:#79e59b;font-size:12px">
+          ORÇAMENTO {{ quote_reference }}
+        </p>
+        {% endif %}
+        {% if company %}
+        <p style="margin:0 0 8px;color:#79e59b;font-size:12px">{{ company }}</p>
+        {% endif %}
+        <h1 style="font-size:24px;line-height:1.25;margin:0 0 16px">
+          __DEVButter_TITLE__
+        </h1>
+        <p style="font-size:16px;line-height:1.6;color:#c9d0dc;margin:0 0 18px">
+          __DEVButter_MESSAGE__
+        </p>
+        {% if scope_summary %}
+        <p style="font-size:14px;line-height:1.6;color:#c9d0dc">
+          <strong>Resumo:</strong> {{ scope_summary }}
+        </p>
+        {% endif %}
+        {% if price_range %}
+        <p style="font-size:14px;color:#c9d0dc">
+          <strong>Faixa estimada:</strong> {{ price_range }}
+        </p>
+        {% endif %}
+        {% if timeline %}
+        <p style="font-size:14px;color:#c9d0dc">
+          <strong>Prazo estimado:</strong> {{ timeline }}
+        </p>
+        {% endif %}
+        {% if amount %}
+        <p style="font-size:14px;color:#c9d0dc">
+          <strong>Valor:</strong> {{ amount }}
+        </p>
+        {% endif %}
+        {% if due_date %}
+        <p style="font-size:14px;color:#c9d0dc">
+          <strong>Vencimento:</strong> {{ due_date }}
+        </p>
+        {% endif %}
+        {% if status_label %}
+        <p style="font-size:14px;color:#c9d0dc">
+          <strong>Status:</strong> {{ status_label }}
+        </p>
+        {% elif status %}
+        <p style="font-size:14px;color:#c9d0dc">
+          <strong>Status:</strong> {{ status }}
+        </p>
+        {% endif %}
+        {% if scheduled_date %}
+        <p style="font-size:14px;color:#c9d0dc">
+          <strong>Data limite:</strong> {{ scheduled_date }}
+        </p>
+        {% endif %}
+        {% if expires_at %}
+        <p style="font-size:14px;color:#9ca6b5">Este link expira em {{ expires_at }}.</p>
+        {% endif %}
+        {% if payment_link %}
+        <p style="margin:24px 0 0">
+          <a href="{{ payment_link }}" style="display:inline-block;padding:14px 24px;
+            border-radius:10px;background:#79e59b;color:#05070d;text-decoration:none">
+            Acessar pagamento
+          </a>
+        </p>
+        {% elif password_setup_url %}
+        <p style="margin:24px 0 0">
+          <a href="{{ password_setup_url }}" style="display:inline-block;padding:14px 24px;
+            border-radius:10px;background:#79e59b;color:#05070d;text-decoration:none">
+            Definir minha senha
+          </a>
+        </p>
+        {% elif password_recovery_url %}
+        <p style="margin:24px 0 0">
+          <a href="{{ password_recovery_url }}" style="display:inline-block;padding:14px 24px;
+            border-radius:10px;background:#79e59b;color:#05070d;text-decoration:none">
+            Redefinir senha
+          </a>
+        </p>
+        {% elif onboarding_url %}
+        <p style="margin:24px 0 0">
+          <a href="{{ onboarding_url }}" style="display:inline-block;padding:14px 24px;
+            border-radius:10px;background:#79e59b;color:#05070d;text-decoration:none">
+            Acessar recebimentos
+          </a>
+        </p>
+        {% elif portal_url %}
+        <p style="margin:24px 0 0">
+          <a href="{{ portal_url }}" style="display:inline-block;padding:14px 24px;
+            border-radius:10px;background:#79e59b;color:#05070d;text-decoration:none">
+            Abrir portal
+          </a>
+        </p>
+        {% endif %}
+        <p style="border-top:1px solid #1b2231;margin:28px 0 0;padding-top:18px;
+          color:#7c8494;font-size:13px;line-height:1.6">
+          Qualquer dúvida, responda este e-mail — uma pessoa lê.
+        </p>
+      </td>
+    </tr>
+  </table>
+  <p style="max-width:600px;margin:16px auto 0;color:#7c8494;font-size:12px">
+    DevButter · Você recebeu esta mensagem sobre sua conta ou solicitação.
+  </p>
+</body>
+</html>
