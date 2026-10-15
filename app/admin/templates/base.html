@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <title>{% block title %}Butter Relay{% endblock %}</title>
-    <script src="https://unpkg.com/htmx.org@2.0.3"></script>
+    <script src="https://unpkg.com/htmx.org@2.0.3" nonce="{{ request.state.csp_nonce }}"></script>
     <style>
         :root {
             --bg: #141628; --bg2: #1b1e32; --fg: #e4e1cd; --muted: #8b8fa3;

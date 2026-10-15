@@ -1,0 +1,112 @@
+{
+  "manifest_version": 1,
+  "client": {
+    "slug": "ediy",
+    "name": "EDIY (ediyporn.com)",
+    "external": true,
+    "contact_email": "contact@devbutter.tech"
+  },
+  "sender": {
+    "from_email": "no-reply@ediyporn.com",
+    "from_name": "EDIY",
+    "reply_to": null
+  },
+  "delivery": {
+    "provider": "brevo",
+    "config": {},
+    "secrets": {
+      "brevo_api_key": "${EDIY_BREVO_API_KEY}"
+    }
+  },
+  "limits": {
+    "rate_per_minute": 60,
+    "max_recipients_per_message": 1,
+    "max_body_kb": 512
+  },
+  "allow_undeclared_types": false,
+  "email_types": [
+    {
+      "key": "woocommerce.new_order",
+      "category": "transactional",
+      "mode": "raw",
+      "locale": "pt-BR",
+      "description": "Aviso interno de novo pedido (admin)",
+      "is_active": true
+    },
+    {
+      "key": "woocommerce.customer_processing_order",
+      "category": "transactional",
+      "mode": "raw",
+      "locale": "pt-BR",
+      "description": "Pedido em processamento (cliente)",
+      "is_active": true
+    },
+    {
+      "key": "woocommerce.customer_completed_order",
+      "category": "transactional",
+      "mode": "raw",
+      "locale": "pt-BR",
+      "description": "Pedido concluído (cliente)",
+      "is_active": true
+    },
+    {
+      "key": "woocommerce.customer_invoice",
+      "category": "transactional",
+      "mode": "raw",
+      "locale": "pt-BR",
+      "description": "Fatura/pagamento pendente",
+      "is_active": true
+    },
+    {
+      "key": "woocommerce.subscription_renewal",
+      "category": "transactional",
+      "mode": "raw",
+      "locale": "pt-BR",
+      "description": "Renovação de assinatura",
+      "is_active": true
+    },
+    {
+      "key": "woocommerce.subscription_expiry",
+      "category": "transactional",
+      "mode": "raw",
+      "locale": "pt-BR",
+      "description": "Assinatura expirada/cancelada",
+      "is_active": true
+    },
+    {
+      "key": "wordpress.password_reset",
+      "category": "transactional",
+      "mode": "raw",
+      "locale": "pt-BR",
+      "description": "Redefinição de senha",
+      "is_active": true
+    },
+    {
+      "key": "wordpress.new_user",
+      "category": "transactional",
+      "mode": "raw",
+      "locale": "pt-BR",
+      "description": "Boas-vindas / novo usuário",
+      "is_active": true
+    },
+    {
+      "key": "wordpress.unclassified",
+      "category": "transactional",
+      "mode": "raw",
+      "locale": "pt-BR",
+      "description": "Qualquer e-mail não classificado pelo plugin",
+      "is_active": true
+    }
+  ],
+  "templates": [],
+  "keys": [
+    {
+      "name": "wordpress-prod",
+      "scopes": [
+        "send",
+        "read"
+      ],
+      "expires_in_days": null
+    }
+  ]
+}
