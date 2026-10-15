@@ -1,5 +1,6 @@
 import uuid
 from types import SimpleNamespace
+from typing import Any, cast
 
 from app.templates_.schemas import TemplateCreate
 from app.templates_.service import TemplateService
@@ -42,10 +43,13 @@ def test_devbutter_templates_validate_and_render():
         )
         service._validate_definition(template)
         rendered_subject, rendered_html = service.render(
-            SimpleNamespace(
-                subject_template=subject,
-                html_template=html,
-                variables_schema={"type": "object"},
+            cast(
+                Any,
+                SimpleNamespace(
+                    subject_template=subject,
+                    html_template=html,
+                    variables_schema={"type": "object"},
+                ),
             ),
             payload,
         )
