@@ -79,10 +79,10 @@
                 <td>{{ t.subject_template }}</td>
                 <td style="white-space: nowrap;">
                     <button class="secondary" type="button"
-                            onclick="document.getElementById('preview-{{ t.id }}').classList.toggle('hidden')">
+                            data-toggle-preview="{{ t.id }}">
                         Preview
                     </button>
-                    <button class="secondary" type="button" onclick="editAsNewVersion('{{ t.id }}')">Edit as new version</button>
+                    <button class="secondary" type="button" data-edit-template="{{ t.id }}">Edit as new version</button>
                     {% if not t.is_active %}
                     <form method="post" action="/admin/templates/{{ t.id }}/activate" style="display:inline">
                         <button class="secondary" type="submit">Activate</button>
@@ -116,7 +116,7 @@
         <textarea id="html_template" name="html_template" rows="8" required placeholder="&lt;p&gt;Hi {{ '{{' }} name {{ '}}' }}&lt;/p&gt;">{{ form.get('html_template', '') }}</textarea>
         <label>Variables schema (optional JSON Schema; payloads that don't match are rejected)</label>
         <textarea id="variables_schema" name="variables_schema" rows="4" placeholder='{"type": "object", "required": ["name"]}'>{{ form.get('variables_schema', '') }}</textarea>
-        <button type="button" class="secondary" onclick="applyDevbutterStarter()">Use DevButter starter</button>
+        <button type="button" class="secondary" data-apply-starter>Use DevButter starter</button>
         <button type="submit">Publish new version</button>
     </form>
 </div>
@@ -149,7 +149,8 @@
     </td>
   </tr>
 </table>{% endraw %}</script>
-<script>
+<script nonce="{{ request.state.csp_nonce }}">
+// No inline handlers: the admin CSP only runs scripts carrying this nonce.
 function editAsNewVersion(templateId) {
     var data = JSON.parse(document.getElementById("tpl-data-" + templateId).textContent);
     document.getElementById("template_key").value = data.key;
@@ -164,5 +165,16 @@ function applyDevbutterStarter() {
     document.getElementById("html_template").value =
         document.getElementById("devbutter-email-starter-html").textContent.trim();
 }
+document.addEventListener("click", function (event) {
+    var el = event.target.closest("[data-toggle-preview], [data-edit-template], [data-apply-starter]");
+    if (!el) { return; }
+    if (el.hasAttribute("data-toggle-preview")) {
+        document.getElementById("preview-" + el.dataset.togglePreview).classList.toggle("hidden");
+    } else if (el.hasAttribute("data-edit-template")) {
+        editAsNewVersion(el.dataset.editTemplate);
+    } else {
+        applyDevbutterStarter();
+    }
+});
 </script>
 {% endblock %}

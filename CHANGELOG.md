@@ -4,6 +4,14 @@ Registro retroativo baseado em todos os commits da branch `master`.
 
 ## Unreleased
 
+- Admin (DVB-205): CSP restritiva com nonce por requisição nas páginas HTML
+  (`script-src 'nonce-…' https://unpkg.com`, sem `unsafe-inline`/`unsafe-eval`,
+  `frame-ancestors 'none'`, `object-src 'none'`), mais `X-Frame-Options`,
+  `X-Content-Type-Options` e `Referrer-Policy` em toda resposta. Os handlers `onclick`
+  foram trocados por `data-*` + um único script com nonce. Previews continuam em
+  `iframe sandbox` e herdam a CSP. Testes cobrem script, evento inline, URL externa e
+  payload que tenta escapar do atributo `srcdoc`.
+
 - Removidos OpenTelemetry (traces, métricas e export OTLP de logs) e as linhas JSON
   `metric emitted` (`app/core/telemetry.py`, `app/core/metrics.py`, variáveis `OTEL_*`,
   dependências `opentelemetry-*`): o export de métricas ao New Relic falhava com `401` e
