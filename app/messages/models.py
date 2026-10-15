@@ -3,7 +3,18 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    false,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -18,6 +29,13 @@ class MessageStatus(str, enum.Enum):
 
 class Message(Base):
     __tablename__ = "messages"
+    __table_args__ = (
+        # One row per logical message: the Celery task id is the idempotency key, so two
+        # workers racing on the same (re)delivered task can never both create a row.
+        UniqueConstraint(
+            "project_id", "broker_message_id", name="uq_messages_project_broker_message_id"
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("projects.id"), index=True)
@@ -35,6 +53,9 @@ class Message(Base):
     )
     attempts: Mapped[int] = mapped_column(Integer, default=0)
     last_error: Mapped[str | None] = mapped_column(Text, default=None)
+    # True once no further automatic attempt will happen (permanent provider error, or
+    # the retry budget is spent); a plain "failed" without it is still being retried.
+    terminal_failure: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     provider_message_id: Mapped[str | None] = mapped_column(String(200), default=None)
     broker_message_id: Mapped[str | None] = mapped_column(String(200), default=None, index=True)
     received_at: Mapped[datetime] = mapped_column(

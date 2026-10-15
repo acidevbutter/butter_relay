@@ -2,8 +2,10 @@ import uuid
 from datetime import UTC, datetime
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.exceptions import ConflictError
 from app.messages.models import Message, MessageStatus
 from app.messages.schemas import MessageCreate
 
@@ -29,25 +31,33 @@ class MessageRepository:
     async def get(self, message_id: uuid.UUID) -> Message | None:
         return await self.session.get(Message, message_id)
 
-    async def get_by_broker_message_id(self, broker_message_id: str) -> Message | None:
+    async def get_by_broker_message_id(
+        self, broker_message_id: str, project_id: uuid.UUID | None = None
+    ) -> Message | None:
         # .first(), not scalar_one_or_none(): rows duplicated by the pre-#35 retry
         # behaviour must not crash the lookup.
-        result = await self.session.execute(
-            select(Message)
-            .where(Message.broker_message_id == broker_message_id)
-            .order_by(Message.received_at.desc())
-        )
+        query = select(Message).where(Message.broker_message_id == broker_message_id)
+        if project_id is not None:
+            query = query.where(Message.project_id == project_id)
+        result = await self.session.execute(query.order_by(Message.received_at.desc()))
         return result.scalars().first()
 
     async def create(self, payload: MessageCreate) -> Message:
         message = Message(**payload.model_dump())
         self.session.add(message)
-        await self.session.commit()
+        try:
+            await self.session.commit()
+        except IntegrityError as exc:
+            await self.session.rollback()
+            raise ConflictError(
+                f"Message for task {payload.broker_message_id!r} already exists for this project"
+            ) from exc
         await self.session.refresh(message)
         return message
 
     async def mark_processing(self, message: Message, rendered_subject: str) -> Message:
         message.status = MessageStatus.PROCESSING
+        message.terminal_failure = False
         message.rendered_subject = rendered_subject
         message.attempts += 1
         await self.session.commit()
@@ -62,9 +72,12 @@ class MessageRepository:
         await self.session.refresh(message)
         return message
 
-    async def mark_failed(self, message: Message, error: str) -> Message:
+    async def mark_failed(
+        self, message: Message, error: str, *, terminal: bool = False
+    ) -> Message:
         message.status = MessageStatus.FAILED
         message.last_error = error
+        message.terminal_failure = terminal
         await self.session.commit()
         await self.session.refresh(message)
         return message

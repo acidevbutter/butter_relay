@@ -111,7 +111,7 @@ async def test_brevo_failures_log_provider_error_without_recipient_or_body(
     assert "test-key" not in message
 
 
-async def test_brevo_transport_error_is_logged_and_reraised(
+async def test_brevo_transport_error_is_logged_and_becomes_a_transient_send_error(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     def _boom(request: httpx.Request) -> httpx.Response:
@@ -122,10 +122,12 @@ async def test_brevo_transport_error_is_logged_and_reraised(
 
     with (
         caplog.at_level(logging.WARNING, logger="app.core.email_provider"),
-        pytest.raises(httpx.ConnectError),
+        pytest.raises(EmailSendError, match="ConnectError") as excinfo,
     ):
         await provider.send(to="a@b.co", subject="s", html="<p>x</p>", from_email="f@b.co")
     await client.aclose()
+
+    assert excinfo.value.permanent is False  # a network blip is worth retrying
 
     records = [r for r in caplog.records if getattr(r, "event", None) == "email_provider_error"]
     assert len(records) == 1
@@ -367,3 +369,42 @@ async def test_delivery_endpoint_requires_authentication(client, db_session) -> 
 
     project_id, _ = await create_project_and_api_key(db_session)
     assert (await client.get(f"/api/v1/projects/{project_id}/delivery")).status_code == 401
+
+
+# --- error classification (DVB-188) ------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("status", "permanent"),
+    [(400, True), (401, True), (403, True), (404, True), (422, True),
+     (408, False), (429, False), (500, False), (503, False)],
+)
+async def test_brevo_status_classification(status: int, permanent: bool) -> None:
+    client = httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda request: httpx.Response(status, text="nope"))
+    )
+    provider = BrevoEmailProvider(api_key="k", client=client)
+
+    with pytest.raises(EmailSendError) as excinfo:
+        await provider.send(to="a@b.co", subject="s", html="<p>x</p>", from_email="f@b.co")
+    await client.aclose()
+
+    assert excinfo.value.permanent is permanent
+
+
+def test_smtp_error_classification() -> None:
+    import smtplib
+
+    from app.core.email_provider import _smtp_error_is_permanent
+
+    assert _smtp_error_is_permanent(smtplib.SMTPResponseException(550, b"no such user"))
+    assert _smtp_error_is_permanent(smtplib.SMTPRecipientsRefused({"a@b.co": (550, b"x")}))
+    assert not _smtp_error_is_permanent(smtplib.SMTPResponseException(451, b"try later"))
+    assert not _smtp_error_is_permanent(ConnectionRefusedError())
+    assert not _smtp_error_is_permanent(TimeoutError())
+
+
+def test_unknown_provider_is_a_permanent_error() -> None:
+    with pytest.raises(EmailSendError) as excinfo:
+        get_email_provider_for_project("carrier-pigeon", {}, settings)
+    assert excinfo.value.permanent is True

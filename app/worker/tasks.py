@@ -22,7 +22,7 @@ from app.core.email_provider import (
     EmailSendError,
     get_email_provider_for_project,
 )
-from app.core.exceptions import NotFoundError, ValidationFailedError
+from app.core.exceptions import ConflictError, NotFoundError, ValidationFailedError
 from app.db.session import engine, session_factory
 from app.messages.models import Message, MessageStatus
 from app.messages.repository import MessageRepository
@@ -66,9 +66,12 @@ async def process_message(
     payload: dict[str, Any] | None,
     email_provider: EmailProvider | None = None,
     blob_client: BlobClient | None = None,
+    final_attempt: bool = False,
 ) -> None:
     """`email_provider` is an override (tests); normally it is resolved from the
     project's own `delivery_provider`/`delivery_config` once the project is loaded.
+    `final_attempt` is True on the last Celery try: a transient failure then becomes
+    terminal (no further automatic attempt will happen).
     """
     blob = blob_client or get_blob_client()
     async with session_factory() as session:
@@ -80,8 +83,16 @@ async def process_message(
             project_id, template_key, to_email, payload
         )
 
-        existing = await message_service.get_by_broker_message_id(broker_message_id)
+        existing = await message_service.get_by_broker_message_id(
+            broker_message_id, parsed_project_id
+        )
         if existing is not None and existing.status == MessageStatus.SENT:
+            return
+        if existing is not None and existing.terminal_failure:
+            # A redelivery of a message that already failed for good (permanent provider
+            # error, blocked recipient, retries spent) must not send it again; an admin
+            # can still resend it explicitly.
+            logger.warning("ignoring redelivery of terminally failed message %s", existing.id)
             return
 
         try:
@@ -119,7 +130,7 @@ async def process_message(
             if not settings.is_recipient_allowed(to_email):
                 detail = "recipient blocked by non-production delivery policy"
                 logger.warning("%s: %s", detail, to_email)
-                await message_service.mark_failed(message, detail)
+                await message_service.mark_failed(message, detail, terminal=True)
                 return
 
             provider = email_provider or get_email_provider_for_project(
@@ -134,11 +145,18 @@ async def process_message(
             )
             await message_service.mark_sent(message, result.provider_message_id)
         except EmailSendError as exc:
-            await message_service.mark_failed(message, exc.detail)
+            await message_service.mark_failed(
+                message, exc.detail, terminal=exc.permanent or final_attempt
+            )
+            if exc.permanent:
+                # Retrying cannot help (rejected request, bad credentials, refused
+                # recipient): fail for good instead of spending the retry budget.
+                logger.error("permanent send failure for message %s: %s", message.id, exc.detail)
+                return
             raise
         except ValidationFailedError as exc:
             if "message" in locals():
-                await message_service.mark_failed(message, exc.detail)
+                await message_service.mark_failed(message, exc.detail, terminal=final_attempt)
             raise
 
 
@@ -162,7 +180,7 @@ async def process_message_isolated(*args: Any, **kwargs: Any) -> None:
 @celery_app.task(  # type: ignore[untyped-decorator]  # celery ships no type information
     bind=True,
     name=TASK_NAME,
-    autoretry_for=(NotFoundError, EmailSendError, ValidationFailedError),
+    autoretry_for=(NotFoundError, EmailSendError, ValidationFailedError, ConflictError),
     max_retries=MAX_RETRIES,
     retry_backoff=True,
     retry_backoff_max=300,
@@ -183,17 +201,26 @@ def process_message_task(
     -- see Message.broker_message_id / get_by_broker_message_id.
 
     MalformedMessageError never retries -- bad input won't fix itself with
-    time, so it's logged and dropped. Everything in autoretry_for backs off
-    exponentially (retry_backoff) up to MAX_RETRIES, then Celery marks the
-    task FAILURE for good; Message.status is already FAILED in the DB from
-    mark_failed by then, so nothing vanishes silently. This replaces the old
+    time, so it's logged and dropped. A permanent provider error (EmailSendError.permanent)
+    marks the message terminally failed and returns without retrying. Everything
+    else in autoretry_for backs off exponentially (retry_backoff) up to
+    MAX_RETRIES, then Celery marks the task FAILURE for good; Message.status is
+    already FAILED in the DB from mark_failed by then (terminal_failure=True on
+    the last try), so nothing vanishes silently. This replaces the old
     un-acked SQS message retrying every fixed 60s forever (no DLQ existed)
     with a bounded, backed-off retry that gives up loudly instead of
     spinning.
     """
     try:
         asyncio.run(
-            process_message_isolated(self.request.id, project_id, template_key, to, payload)
+            process_message_isolated(
+                self.request.id,
+                project_id,
+                template_key,
+                to,
+                payload,
+                final_attempt=self.request.retries >= MAX_RETRIES,
+            )
         )
     except MalformedMessageError as exc:
         logger.error("dropping malformed relay message %s: %s", self.request.id, exc.detail)
