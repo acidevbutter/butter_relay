@@ -4,6 +4,11 @@ Registro retroativo baseado em todos os commits da branch `master`.
 
 ## Unreleased
 
+- Adicionado publicador idempotente dos sete templates transacionais `devbutter_*`
+  por Project (`scripts/seed_devbutter_templates.py`). A operação cria somente
+  templates sem versão ativa, usa `TemplateService` para validar Jinja e registra
+  versões no Relay sem enviar e-mails; o script também está disponível na imagem da API.
+
 - Admin (DVB-205): CSP restritiva com nonce por requisição nas páginas HTML
   (`script-src 'nonce-…' https://unpkg.com`, sem `unsafe-inline`/`unsafe-eval`,
   `frame-ancestors 'none'`, `object-src 'none'`), mais `X-Frame-Options`,
