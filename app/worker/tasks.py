@@ -17,10 +17,13 @@ from typing import Any
 
 from app.core.blob_client import BlobClient, get_blob_client
 from app.core.decorators import log_call
-from app.core.email_provider import BrevoEmailProvider, EmailSendError
+from app.core.email_provider import (
+    EmailProvider,
+    EmailSendError,
+    get_email_provider_for_project,
+)
 from app.core.exceptions import NotFoundError, ValidationFailedError
-from app.core.metrics import emit_metrics
-from app.db.session import session_factory
+from app.db.session import engine, session_factory
 from app.messages.models import Message, MessageStatus
 from app.messages.repository import MessageRepository
 from app.messages.schemas import MessageCreate
@@ -61,35 +64,30 @@ async def process_message(
     template_key: str,
     to_email: str,
     payload: dict[str, Any] | None,
-    email_provider: BrevoEmailProvider,
+    email_provider: EmailProvider | None = None,
     blob_client: BlobClient | None = None,
 ) -> None:
+    """`email_provider` is an override (tests); normally it is resolved from the
+    project's own `delivery_provider`/`delivery_config` once the project is loaded.
+    """
     blob = blob_client or get_blob_client()
     async with session_factory() as session:
         project_service = ProjectService(ProjectRepository(session))
         template_service = TemplateService(TemplateRepository(session))
         message_service = MessageService(MessageRepository(session))
 
-        try:
-            parsed_project_id, template_key, to_email, render_payload = _parse_task_args(
-                project_id, template_key, to_email, payload
-            )
-        except MalformedMessageError:
-            await emit_metrics([("MessagesMalformed", 1, "Count")], {"TemplateKey": "unknown"})
-            raise
+        parsed_project_id, template_key, to_email, render_payload = _parse_task_args(
+            project_id, template_key, to_email, payload
+        )
 
         existing = await message_service.get_by_broker_message_id(broker_message_id)
         if existing is not None and existing.status == MessageStatus.SENT:
-            await emit_metrics([("MessagesProcessed", 1, "Count")], {"TemplateKey": template_key})
             return
 
-        dimensions = {"TemplateKey": template_key}
-        await emit_metrics([("MessagesProcessed", 1, "Count")], dimensions)
         try:
             project = await project_service.get(parsed_project_id)
             if not project.is_active:
                 logger.warning("skipping message for inactive project %s", parsed_project_id)
-                await emit_metrics([("MessagesFailed", 1, "Count")], dimensions)
                 return
 
             template = await template_service.get_active(parsed_project_id, template_key)
@@ -101,13 +99,17 @@ async def process_message(
                     raise ValidationFailedError("NFS-e blob has no public_url")
                 render_payload["cta_link"] = public_url
 
-            message: Message = await message_service.create(
+            # A Celery retry reuses the task id: keep one row per logical message
+            # (attempts counts the tries) instead of inserting a duplicate per
+            # attempt (acidevbutter/butter_relay#35).
+            message: Message = existing or await message_service.create(
                 MessageCreate(
                     project_id=parsed_project_id,
                     template_id=template.id,
                     to_email=to_email,
                     payload=render_payload,
                     broker_message_id=broker_message_id,
+                    provider=project.delivery_provider,
                 )
             )
 
@@ -118,10 +120,12 @@ async def process_message(
                 detail = "recipient blocked by non-production delivery policy"
                 logger.warning("%s: %s", detail, to_email)
                 await message_service.mark_failed(message, detail)
-                await emit_metrics([("MessagesFailed", 1, "Count")], dimensions)
                 return
 
-            result = await email_provider.send(
+            provider = email_provider or get_email_provider_for_project(
+                project.delivery_provider, project.delivery_config, settings
+            )
+            result = await provider.send(
                 to=to_email,
                 subject=subject,
                 html=html,
@@ -129,19 +133,30 @@ async def process_message(
                 from_name=project.default_sender_name,
             )
             await message_service.mark_sent(message, result.provider_message_id)
-            await emit_metrics([("MessagesSent", 1, "Count")], dimensions)
         except EmailSendError as exc:
             await message_service.mark_failed(message, exc.detail)
-            await emit_metrics([("MessagesFailed", 1, "Count")], dimensions)
             raise
         except ValidationFailedError as exc:
             if "message" in locals():
                 await message_service.mark_failed(message, exc.detail)
-            await emit_metrics([("MessagesFailed", 1, "Count")], dimensions)
             raise
-        except Exception:
-            await emit_metrics([("MessagesFailed", 1, "Count")], dimensions)
-            raise
+
+
+async def process_message_isolated(*args: Any, **kwargs: Any) -> None:
+    """Runs process_message, then disposes the module-level engine's pool.
+
+    Every Celery task calls asyncio.run() -- a brand-new event loop -- but
+    app.db.session builds one engine (pooled asyncpg connections) at import
+    time. Connections left in the pool by a previous task are bound to that
+    task's now-closed loop, so the next task in the same fork process died
+    with "attached to a different loop" and the message was lost
+    (acidevbutter/butter_relay#29). Disposing inside the same loop that used
+    the pool gives each task a fresh one.
+    """
+    try:
+        await process_message(*args, **kwargs)
+    finally:
+        await engine.dispose()
 
 
 @celery_app.task(  # type: ignore[untyped-decorator]  # celery ships no type information
@@ -176,17 +191,9 @@ def process_message_task(
     with a bounded, backed-off retry that gives up loudly instead of
     spinning.
     """
-    email_provider = BrevoEmailProvider(api_key=settings.brevo_api_key)
     try:
         asyncio.run(
-            process_message(
-                self.request.id,
-                project_id,
-                template_key,
-                to,
-                payload,
-                email_provider,
-            )
+            process_message_isolated(self.request.id, project_id, template_key, to, payload)
         )
     except MalformedMessageError as exc:
         logger.error("dropping malformed relay message %s: %s", self.request.id, exc.detail)

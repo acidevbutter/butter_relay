@@ -1,19 +1,19 @@
-import json
 import logging
 
 import httpx
 import pytest
 
-from app.settings.logging_config import JsonFormatter
+from app.settings.terminal_logging import ServiceContextFilter, TerminalFormatter
 
 REQUEST_LOGGER = "app.request"
 
 
-def _format(record: logging.LogRecord) -> dict:
-    return json.loads(JsonFormatter().format(record))
+def _format(record: logging.LogRecord) -> str:
+    ServiceContextFilter("butter-relay", "test").filter(record)
+    return TerminalFormatter().format(record)
 
 
-async def test_one_completion_event_per_successful_request(
+async def test_health_probe_does_not_emit_completion_event(
     client: httpx.AsyncClient, caplog: pytest.LogCaptureFixture
 ) -> None:
     with caplog.at_level(logging.INFO, logger=REQUEST_LOGGER):
@@ -21,19 +21,7 @@ async def test_one_completion_event_per_successful_request(
 
     assert response.status_code == 200
     request_records = [r for r in caplog.records if r.name == REQUEST_LOGGER]
-    assert len(request_records) == 1
-
-    payload = _format(request_records[0])
-    assert payload["event"] == "request_completed"
-    assert payload["logger"] == REQUEST_LOGGER
-    assert payload["level"] == "INFO"
-    assert payload["service"] == "butter-relay"
-    assert payload["environment"] == "development"
-    assert payload["method"] == "GET"
-    assert payload["route"] == "/health"
-    assert payload["status_code"] == 200
-    assert isinstance(payload["duration_ms"], int | float)
-    assert "request_id" in payload and payload["request_id"]
+    assert request_records == []
 
 
 async def test_route_field_is_template_not_raw_path_with_ids(
@@ -44,9 +32,10 @@ async def test_route_field_is_template_not_raw_path_with_ids(
 
     request_records = [r for r in caplog.records if r.name == REQUEST_LOGGER]
     assert len(request_records) == 1
-    payload = _format(request_records[0])
+    line = _format(request_records[0])
     assert response.status_code in (401, 403, 404)
-    assert "does-not-exist" not in payload["route"]
+    assert "does-not-exist" not in line
+    assert "/api/v1/projects/{project_id}" in line
 
 
 async def test_one_failure_event_per_unhandled_exception(
@@ -68,66 +57,53 @@ async def test_one_failure_event_per_unhandled_exception(
     assert len(request_records) == 1
 
     record = request_records[0]
-    payload = _format(record)
-    assert payload["event"] == "request_failed"
-    assert payload["level"] == "ERROR"
-    assert payload["method"] == "GET"
-    assert payload["route"] == "/__boom"
-    assert "request_id" in payload and payload["request_id"]
-    assert "exc_info" in payload
-    assert "boom" in payload["exc_info"]
+    line = _format(record)
+    assert record.levelname == "ERROR"
+    assert line.startswith(tuple("0123456789"))
+    assert "ERROR" in line
+    assert "[butter-relay/test] request_failed: request failed: GET /__boom" in line
+    assert "| GET /__boom |" in line
+    assert f"request_id={record.__dict__["request_id"]}" in line
+    # Traceback follows the single summary line.
+    assert "RuntimeError: boom" in line
+    assert len(line.splitlines()[0]) < 200
 
 
-def test_json_formatter_never_includes_raw_message_placeholders() -> None:
+def test_terminal_formatter_renders_one_readable_line() -> None:
     record = logging.LogRecord(
         name="app.request",
         level=logging.INFO,
         pathname=__file__,
         lineno=1,
         msg="%s %s -> %s (%.1fms)",
-        args=("GET", "/health", 200, 1.234),
+        args=("POST", "/api/v1/messages/", 202, 12.34),
         exc_info=None,
     )
     record.event = "request_completed"
     record.request_id = "abc-123"
-    record.method = "GET"
-    record.route = "/health"
-    record.status_code = 200
-    record.duration_ms = 1.2
+    record.method = "POST"
+    record.route = "/api/v1/messages/"
+    record.status_code = 202
+    record.duration_ms = 12.3
 
-    payload = _format(record)
+    line = _format(record)
 
-    assert payload["event"] == "request_completed"
-    assert payload["request_id"] == "abc-123"
-    assert payload["route"] == "/health"
-    assert payload["status_code"] == 200
-    assert payload["duration_ms"] == 1.2
-    # No secrets/payload keys ever end up in a request-completion log.
-    assert "payload" not in payload
-    assert "headers" not in payload
+    assert "\n" not in line
+    assert (
+        "INFO    [butter-relay/test] request_completed: POST /api/v1/messages/ -> 202 (12.3ms)"
+        " | POST /api/v1/messages/ | → 202 | 12.3ms | request_id=abc-123"
+    ) in line
+    # Raw placeholders, payloads and headers never leak into the line.
+    assert "%s" not in line
+    assert "headers" not in line
 
 
-def test_json_formatter_passes_metrics_payloads_through_unwrapped() -> None:
-    """app.core.metrics.emit_metrics logs an already-complete, flat JSON
-    payload to the "metrics" logger. This formatter must not re-wrap it
-    inside its own envelope, or every metric field ends up hidden as an
-    escaped string inside "event"/"message" and New Relic's top-level-key
-    auto-parsing can't see route/status/duration.
-    """
-    metric_payload = {"timestamp": 1234, "message": "metric_emitted", "Route": "/health"}
+def test_terminal_formatter_has_no_metric_events() -> None:
     record = logging.LogRecord(
-        name="metrics",
-        level=logging.INFO,
-        pathname=__file__,
-        lineno=1,
-        msg=json.dumps(metric_payload),
-        args=(),
+        name="app.any", level=logging.INFO, pathname=__file__, lineno=1, msg="hi", args=(),
         exc_info=None,
     )
-
-    formatted = JsonFormatter().format(record)
-
-    assert json.loads(formatted) == metric_payload
+    assert "metric" not in _format(record)
 
 
 def test_uvicorn_access_logger_is_quiet() -> None:

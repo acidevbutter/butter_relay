@@ -1,0 +1,15 @@
+{# Delivery channel fields shared by the "new project" form and the project settings form.
+   Expects `providers` and, optionally, `values` (dict) or `form` (dict) with the current values. #}
+{% set cur = values if values is defined else form %}
+<label>Delivery channel (how this company's e-mail leaves the relay)</label>
+<select name="delivery_provider">
+    {% for prov in providers %}
+    <option value="{{ prov.value }}" {{ "selected" if (cur.get('delivery_provider') or 'brevo') == prov.value }}>
+        {{ "Brevo (transactional API, default)" if prov.value == "brevo" else "SMTP (mailpit sandbox / own relay host)" }}
+    </option>
+    {% endfor %}
+</select>
+<label>SMTP host &mdash; only for the SMTP channel; blank uses the deployment default{% if default_smtp is defined %} (<code>{{ default_smtp }}</code>){% endif %}</label>
+<input type="text" name="smtp_host" placeholder="mailpit" value="{{ cur.get('smtp_host', '') or '' }}">
+<label>SMTP port</label>
+<input type="number" name="smtp_port" min="1" max="65535" placeholder="1025" value="{{ cur.get('smtp_port', '') or '' }}">

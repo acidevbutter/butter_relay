@@ -1,8 +1,11 @@
+import re
 import uuid
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
+
+_KEY_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,149}$")
 
 
 class TemplateCreate(BaseModel):
@@ -11,6 +14,16 @@ class TemplateCreate(BaseModel):
     subject_template: str
     html_template: str
     variables_schema: dict[str, Any] = {}
+
+    @field_validator("key")
+    @classmethod
+    def _validate_key(cls, key: str) -> str:
+        if not _KEY_PATTERN.match(key):
+            raise ValueError(
+                "key must start with a letter or digit and contain only letters, digits, "
+                "'_', '-' or '.' (max 150 chars)"
+            )
+        return key
 
 
 class TemplateRead(BaseModel):

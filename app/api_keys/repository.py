@@ -23,8 +23,12 @@ class ApiKeyRepository:
         result = await self.session.execute(select(ApiKey).where(ApiKey.key_hash == key_hash))
         return result.scalar_one_or_none()
 
-    async def create(self, project_id: uuid.UUID, label: str, key_hash: str) -> ApiKey:
-        api_key = ApiKey(project_id=project_id, label=label, key_hash=key_hash)
+    async def create(
+        self, project_id: uuid.UUID, label: str, key_hash: str, expires_at: datetime | None = None
+    ) -> ApiKey:
+        api_key = ApiKey(
+            project_id=project_id, label=label, key_hash=key_hash, expires_at=expires_at
+        )
         self.session.add(api_key)
         try:
             await self.session.commit()

@@ -4,10 +4,12 @@ Broader coverage of this module is tracked in docs/prompts/cobertura-testes-mess
 """
 
 import uuid
+from datetime import UTC, datetime, timedelta
 
 from app.api_keys.repository import ApiKeyRepository
 from app.api_keys.service import ApiKeyService
 from app.core.exceptions import NotFoundError, UnauthorizedError
+from app.projects.repository import ProjectRepository
 from tests.conftest import create_project_and_api_key
 
 
@@ -15,11 +17,15 @@ def _auth(plaintext_key: str) -> dict:
     return {"Authorization": f"Bearer {plaintext_key}"}
 
 
+def _service(db_session) -> ApiKeyService:
+    return ApiKeyService(ApiKeyRepository(db_session), ProjectRepository(db_session))
+
+
 # --- ApiKeyService, called directly (documents that `authenticate` -- previously
 # dead code, see docs/auditoria-seguranca-2026-08-29.md item 2 -- actually works) ---
 
 async def test_authenticate_with_valid_key_returns_api_key_and_touches_last_used(db_session):
-    service = ApiKeyService(ApiKeyRepository(db_session))
+    service = _service(db_session)
     project_id, plaintext_key = await create_project_and_api_key(db_session)
 
     api_key = await service.authenticate(plaintext_key)
@@ -29,7 +35,7 @@ async def test_authenticate_with_valid_key_returns_api_key_and_touches_last_used
 
 
 async def test_authenticate_with_unknown_key_raises_unauthorized(db_session):
-    service = ApiKeyService(ApiKeyRepository(db_session))
+    service = _service(db_session)
     raised = False
     try:
         await service.authenticate("brk_does-not-exist")
@@ -39,7 +45,7 @@ async def test_authenticate_with_unknown_key_raises_unauthorized(db_session):
 
 
 async def test_authenticate_with_revoked_key_raises_unauthorized(db_session):
-    service = ApiKeyService(ApiKeyRepository(db_session))
+    service = _service(db_session)
     project_id, plaintext_key = await create_project_and_api_key(db_session)
     api_key = await service.authenticate(plaintext_key)
     await service.revoke(api_key.id, api_key.project_id)
@@ -52,8 +58,46 @@ async def test_authenticate_with_revoked_key_raises_unauthorized(db_session):
     assert raised
 
 
+async def test_internal_project_key_never_expires(db_session):
+    service = _service(db_session)
+    _, plaintext_key = await create_project_and_api_key(db_session, external=False)
+
+    api_key = await service.authenticate(plaintext_key)
+
+    assert api_key.expires_at is None
+
+
+async def test_external_project_key_expires_in_30_days(db_session):
+    service = _service(db_session)
+    _, plaintext_key = await create_project_and_api_key(db_session, external=True)
+
+    api_key = await service.authenticate(plaintext_key)
+
+    assert api_key.expires_at is not None
+    # SQLite (used in tests) doesn't round-trip tzinfo, unlike Postgres.
+    expires_at = api_key.expires_at.replace(tzinfo=UTC)
+    assert expires_at > datetime.now(UTC) + timedelta(days=29)
+    assert expires_at < datetime.now(UTC) + timedelta(days=31)
+
+
+async def test_authenticate_with_expired_key_raises_unauthorized_with_specific_message(db_session):
+    service = _service(db_session)
+    _, plaintext_key = await create_project_and_api_key(db_session, external=True)
+    api_key = await service.authenticate(plaintext_key)
+    api_key.expires_at = datetime.now(UTC) - timedelta(seconds=1)
+    await db_session.commit()
+
+    try:
+        await service.authenticate(plaintext_key)
+        raised_detail = None
+    except UnauthorizedError as exc:
+        raised_detail = exc.detail
+    assert raised_detail is not None
+    assert "expired" in raised_detail
+
+
 async def test_revoke_unknown_key_raises_not_found(db_session):
-    service = ApiKeyService(ApiKeyRepository(db_session))
+    service = _service(db_session)
     project_id, _ = await create_project_and_api_key(db_session)
 
     raised = False

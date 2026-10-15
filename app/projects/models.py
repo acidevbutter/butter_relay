@@ -1,10 +1,21 @@
 import uuid
 from datetime import datetime
+from typing import Any
 
-from sqlalchemy import Boolean, DateTime, String, func
+from sqlalchemy import JSON, Boolean, DateTime, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
+from app.core.email_provider import DeliveryProvider
 from app.db.base import Base
+
+
+def queue_name_for(slug: str) -> str:
+    """The Celery queue a project's messages are published/consumed on.
+
+    Derived from the (immutable) slug rather than stored, so there is one
+    source of truth and no migration needed if the naming scheme changes.
+    """
+    return f"relay-{slug}"
 
 
 class Project(Base):
@@ -13,8 +24,21 @@ class Project(Base):
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(200))
     slug: Mapped[str] = mapped_column(String(100), unique=True, index=True)
-    sqs_queue_url: Mapped[str] = mapped_column(String(500))
+    external: Mapped[bool] = mapped_column(Boolean, default=False)
     default_sender_email: Mapped[str] = mapped_column(String(320))
     default_sender_name: Mapped[str] = mapped_column(String(200))
+    # How this company's e-mail leaves the relay (see core/email_provider.py).
+    # Brevo is the default; delivery_config holds non-secret channel options
+    # (today: smtp_host / smtp_port for the "smtp" provider).
+    delivery_provider: Mapped[str] = mapped_column(
+        String(20),
+        default=DeliveryProvider.BREVO.value,
+        server_default=DeliveryProvider.BREVO.value,
+    )
+    delivery_config: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    @property
+    def queue_name(self) -> str:
+        return queue_name_for(self.slug)

@@ -8,6 +8,7 @@
     <table>
         <tbody>
             <tr><th>Status</th><td>{{ message.status }}</td></tr>
+            <tr><th>Channel</th><td>{{ message.provider or "-" }}</td></tr>
             <tr><th>Attempts</th><td>{{ message.attempts }}</td></tr>
             <tr><th>Received</th><td class="muted">{{ message.received_at }}</td></tr>
             <tr><th>Sent</th><td class="muted">{{ message.sent_at or "-" }}</td></tr>
@@ -29,7 +30,7 @@
     <div class="error">{{ render_error }}</div>
     {% else %}
     <div><strong>Subject:</strong> {{ subject }}</div>
-    <iframe style="width:100%; height:500px; margin-top:8px; border:1px solid var(--border); background:#fff;"
+    <iframe sandbox="" style="width:100%; height:500px; margin-top:8px; border:1px solid var(--border); background:#fff;"
             srcdoc="{{ html | e }}"></iframe>
     {% endif %}
 </div>

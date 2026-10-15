@@ -30,10 +30,14 @@ class MessageRepository:
         return await self.session.get(Message, message_id)
 
     async def get_by_broker_message_id(self, broker_message_id: str) -> Message | None:
+        # .first(), not scalar_one_or_none(): rows duplicated by the pre-#35 retry
+        # behaviour must not crash the lookup.
         result = await self.session.execute(
-            select(Message).where(Message.broker_message_id == broker_message_id)
+            select(Message)
+            .where(Message.broker_message_id == broker_message_id)
+            .order_by(Message.received_at.desc())
         )
-        return result.scalar_one_or_none()
+        return result.scalars().first()
 
     async def create(self, payload: MessageCreate) -> Message:
         message = Message(**payload.model_dump())

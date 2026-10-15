@@ -1,7 +1,6 @@
 PROJECT_PAYLOAD = {
     "name": "Crate Diggr",
     "slug": "crate-diggr",
-    "sqs_queue_url": "http://elasticmq:9324/000000000000/relay-shared",
     "default_sender_email": "noreply@devbutter.com",
     "default_sender_name": "DevButter",
 }
@@ -10,7 +9,25 @@ PROJECT_PAYLOAD = {
 async def test_create_project(admin_client):
     response = await admin_client.post("/api/v1/projects/", json=PROJECT_PAYLOAD)
     assert response.status_code == 201
-    assert response.json()["slug"] == "crate-diggr"
+    body = response.json()
+    assert body["slug"] == "crate-diggr"
+    assert body["external"] is False
+    assert body["queue_name"] == "relay-crate-diggr"
+
+
+async def test_create_external_project_sets_external_flag(admin_client):
+    response = await admin_client.post(
+        "/api/v1/projects/", json={**PROJECT_PAYLOAD, "slug": "external-co", "external": True}
+    )
+    assert response.status_code == 201
+    assert response.json()["external"] is True
+
+
+async def test_create_project_with_invalid_slug_returns_422(admin_client):
+    response = await admin_client.post(
+        "/api/v1/projects/", json={**PROJECT_PAYLOAD, "slug": "Not A Valid Slug!"}
+    )
+    assert response.status_code == 422
 
 
 async def test_create_project_duplicate_slug_returns_409(admin_client):

@@ -68,3 +68,16 @@ async def preview_template(
     _require_same_project(current_api_key, template.project_id)
     subject, html = service.render(template, payload.payload)
     return TemplatePreviewResponse(subject=subject, html=html)
+
+
+@router.post(
+    "/{template_id}/activate",
+    response_model=TemplateRead,
+    summary="Make this version the active one (rollback)",
+)
+async def activate_template(
+    template_id: uuid.UUID, current_api_key: CurrentApiKey, service: TemplateServiceDep
+) -> Template:
+    template = await service.get(template_id)
+    _require_same_project(current_api_key, template.project_id)
+    return await service.activate(template_id)

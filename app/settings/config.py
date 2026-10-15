@@ -5,6 +5,8 @@ from urllib.parse import quote
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+SERVICE_NAME = "butter-relay"
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
@@ -30,6 +32,12 @@ class Settings(BaseSettings):
 
     brevo_api_key: str = ""
     allowed_recipient_domains: str = ""
+
+    # Only used when environment == "development" (see get_email_provider) --
+    # points at the mailpit service in docker-compose.yml so local sends land
+    # in a safe inbox instead of hitting the real Brevo API.
+    smtp_host: str = "mailpit"
+    smtp_port: int = 1025
 
     butter_blob_base_url: str = ""
     butter_blob_api_key: str = ""
