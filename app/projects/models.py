@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import JSON, Boolean, DateTime, String, Text, false, func
+from sqlalchemy import JSON, Boolean, DateTime, Integer, String, Text, false, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.email_provider import DeliveryProvider
@@ -45,6 +45,8 @@ class Project(Base):
     allow_undeclared_types: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default=false()
     )
+    # Per-key requests per minute for this client; None = RELAY_DEFAULT_RATE_PER_MINUTE.
+    rate_per_minute: Mapped[int | None] = mapped_column(Integer, default=None)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 

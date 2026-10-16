@@ -67,17 +67,27 @@ async def test_internal_project_key_never_expires(db_session):
     assert api_key.expires_at is None
 
 
-async def test_external_project_key_expires_in_30_days(db_session):
+async def test_external_project_key_defaults_to_send_read_and_no_expiry(db_session):
+    """DVB-308 replaced the fixed 30-day expiry with an explicit expires_in_days."""
     service = _service(db_session)
     _, plaintext_key = await create_project_and_api_key(db_session, external=True)
 
     api_key = await service.authenticate(plaintext_key)
 
-    assert api_key.expires_at is not None
+    assert api_key.expires_at is None
+    assert sorted(api_key.scopes) == ["read", "send"]
+
+
+async def test_key_with_expires_in_days(db_session):
+    service = _service(db_session)
+    project_id, _ = await create_project_and_api_key(db_session, external=True)
+    api_key, _ = await service.create(uuid.UUID(project_id), "temp", expires_in_days=30)
+
     # SQLite (used in tests) doesn't round-trip tzinfo, unlike Postgres.
     expires_at = api_key.expires_at.replace(tzinfo=UTC)
-    assert expires_at > datetime.now(UTC) + timedelta(days=29)
-    assert expires_at < datetime.now(UTC) + timedelta(days=31)
+    assert datetime.now(UTC) + timedelta(days=29) < expires_at < datetime.now(UTC) + timedelta(
+        days=31
+    )
 
 
 async def test_authenticate_with_expired_key_raises_unauthorized_with_specific_message(db_session):

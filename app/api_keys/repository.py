@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api_keys.models import ApiKey
+from app.api_keys.models import ALL_SCOPES, ApiKey
 from app.core.exceptions import ConflictError
 
 
@@ -24,10 +24,19 @@ class ApiKeyRepository:
         return result.scalar_one_or_none()
 
     async def create(
-        self, project_id: uuid.UUID, label: str, key_hash: str, expires_at: datetime | None = None
+        self,
+        project_id: uuid.UUID,
+        label: str,
+        key_hash: str,
+        expires_at: datetime | None = None,
+        scopes: list[str] | None = None,
     ) -> ApiKey:
         api_key = ApiKey(
-            project_id=project_id, label=label, key_hash=key_hash, expires_at=expires_at
+            project_id=project_id,
+            label=label,
+            key_hash=key_hash,
+            expires_at=expires_at,
+            scopes=list(scopes if scopes is not None else ALL_SCOPES),
         )
         self.session.add(api_key)
         try:
@@ -47,3 +56,9 @@ class ApiKeyRepository:
     async def touch_last_used(self, api_key: ApiKey) -> None:
         api_key.last_used_at = datetime.now(UTC)
         await self.session.commit()
+
+    async def set_expiry(self, api_key: ApiKey, expires_at: datetime | None) -> ApiKey:
+        api_key.expires_at = expires_at
+        await self.session.commit()
+        await self.session.refresh(api_key)
+        return api_key

@@ -2,7 +2,7 @@ import uuid
 
 from fastapi import APIRouter, status
 
-from app.api_keys.dependencies import CurrentApiKey
+from app.api_keys.dependencies import ManageApiKey, ReadApiKey
 from app.api_keys.models import ApiKey
 from app.auth.dependencies import CurrentAdminUserApi
 from app.core.exceptions import ForbiddenError
@@ -72,7 +72,7 @@ def _require_own_project(current_api_key: ApiKey, project_id: uuid.UUID) -> None
     summary="Read this project's delivery channel (API key)",
 )
 async def get_delivery(
-    project_id: uuid.UUID, current_api_key: CurrentApiKey, service: ProjectServiceDep
+    project_id: uuid.UUID, current_api_key: ReadApiKey, service: ProjectServiceDep
 ) -> Project:
     _require_own_project(current_api_key, project_id)
     return await service.get(project_id)
@@ -86,7 +86,7 @@ async def get_delivery(
 async def set_delivery(
     project_id: uuid.UUID,
     payload: ProjectDeliveryUpdate,
-    current_api_key: CurrentApiKey,
+    current_api_key: ManageApiKey,
     service: ProjectServiceDep,
 ) -> Project:
     _require_own_project(current_api_key, project_id)

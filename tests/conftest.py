@@ -23,6 +23,14 @@ def _no_real_queue_broadcast(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(Control, "add_consumer", lambda self, *args, **kwargs: None)
 
 
+@pytest.fixture(autouse=True)
+def _in_memory_rate_limit(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No Redis in tests: count API-key requests in memory (DVB-308)."""
+    from app.core import rate_limit
+
+    monkeypatch.setattr(rate_limit, "backend", rate_limit.MemoryBackend())
+
+
 @pytest.fixture
 async def db_session():
     engine = create_async_engine(TEST_DATABASE_URL)

@@ -18,7 +18,7 @@
         <input type="text" name="default_sender_name" required value="{{ project.default_sender_name }}">
         {% set values = {'delivery_provider': project.delivery_provider, 'smtp_host': project.delivery_config.get('smtp_host'), 'smtp_port': project.delivery_config.get('smtp_port'), 'smtp_security': project.delivery_config.get('smtp_security'), 'smtp_username': project.delivery_config.get('smtp_username')} %}
         {% include "partials/_delivery_fields.html" %}
-        <label><input type="checkbox" name="external" value="true" {{ "checked" if project.external }}> External project (new API keys expire after 30 days)</label>
+        <label><input type="checkbox" name="external" value="true" {{ "checked" if project.external }}> External project (new keys default to send + read scopes)</label>
         <label><input type="checkbox" name="is_active" value="true" {{ "checked" if project.is_active }}> Active (inactive projects are skipped by the worker)</label>
         <label><input type="checkbox" name="allow_undeclared_types" value="true" {{ "checked" if project.allow_undeclared_types }}> Allow sending e-mail types that are not declared below</label>
         <button type="submit">Save settings</button>
@@ -49,30 +49,41 @@
     </div>
     {% endif %}
     <table>
-        <thead><tr><th>Label</th><th>Last used</th><th>Expires</th><th>Status</th><th></th></tr></thead>
+        <thead><tr><th>Label</th><th>Scopes</th><th>Last used</th><th>Expires</th><th>Status</th><th></th></tr></thead>
         <tbody>
         {% for k in api_keys %}
             <tr>
                 <td>{{ k.label }}</td>
+                <td><code>{{ (k.scopes or []) | join(", ") }}</code></td>
                 <td class="muted">{{ k.last_used_at or "never" }}</td>
                 <td class="muted">{{ k.expires_at or "never" }}</td>
-                <td>{{ "revoked" if k.revoked_at else ("expired" if k.expires_at and k.expires_at < now() else "active") }}</td>
+                <td>{{ "revoked" if k.revoked_at else ("expired" if is_expired(k.expires_at) else "active") }}</td>
                 <td>
                     {% if not k.revoked_at %}
-                    <form method="post" action="/admin/projects/{{ project.id }}/api-keys/{{ k.id }}/revoke">
+                    <form method="post" action="/admin/projects/{{ project.id }}/api-keys/{{ k.id }}/rotate" style="display:inline">
+                        <input type="number" name="grace_hours" min="0" placeholder="grace h" style="width:80px">
+                        <button class="secondary" type="submit">Rotate</button>
+                    </form>
+                    <form method="post" action="/admin/projects/{{ project.id }}/api-keys/{{ k.id }}/revoke" style="display:inline">
                         <button class="danger" type="submit">Revoke</button>
                     </form>
                     {% endif %}
                 </td>
             </tr>
         {% else %}
-            <tr><td colspan="5" class="muted">No API keys yet.</td></tr>
+            <tr><td colspan="6" class="muted">No API keys yet.</td></tr>
         {% endfor %}
         </tbody>
     </table>
     <form method="post" action="/admin/projects/{{ project.id }}/api-keys" style="margin-top: 12px;">
         <label>New key label</label>
         <input type="text" name="label" required placeholder="crate-diggr-prod">
+        <label>Scopes {% if project.external %}(external projects default to send + read){% endif %}</label>
+        {% for scope in ["send", "read", "manage"] %}
+        <label style="display:inline"><input type="checkbox" name="scopes" value="{{ scope }}" {{ "checked" if scope != "manage" or not project.external }}> {{ scope }}</label>
+        {% endfor %}
+        <label>Expires in days (blank = never{% if project.external %}; {{ suggested_external_days }} is the suggestion for external clients{% endif %})</label>
+        <input type="number" name="expires_in_days" min="1" max="3650" value="{{ suggested_external_days if project.external else '' }}">
         <button type="submit">Generate key</button>
     </form>
 </div>
