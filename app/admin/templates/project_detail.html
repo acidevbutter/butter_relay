@@ -16,11 +16,22 @@
         <input type="email" name="default_sender_email" required value="{{ project.default_sender_email }}">
         <label>Default sender name</label>
         <input type="text" name="default_sender_name" required value="{{ project.default_sender_name }}">
-        {% set values = {'delivery_provider': project.delivery_provider, 'smtp_host': project.delivery_config.get('smtp_host'), 'smtp_port': project.delivery_config.get('smtp_port')} %}
+        {% set values = {'delivery_provider': project.delivery_provider, 'smtp_host': project.delivery_config.get('smtp_host'), 'smtp_port': project.delivery_config.get('smtp_port'), 'smtp_security': project.delivery_config.get('smtp_security'), 'smtp_username': project.delivery_config.get('smtp_username')} %}
         {% include "partials/_delivery_fields.html" %}
         <label><input type="checkbox" name="external" value="true" {{ "checked" if project.external }}> External project (new API keys expire after 30 days)</label>
         <label><input type="checkbox" name="is_active" value="true" {{ "checked" if project.is_active }}> Active (inactive projects are skipped by the worker)</label>
         <button type="submit">Save settings</button>
+    </form>
+    <form method="post" action="/admin/projects/{{ project.id }}/secrets" style="margin-top: 16px;" autocomplete="off">
+        <h3>Delivery secrets (write-only, encrypted)</h3>
+        <p class="muted">Leave a field blank to keep the stored value. Values are never shown again.</p>
+        <label>SMTP password &mdash; {{ "set" if project.has_smtp_password else "not set" }}</label>
+        <input type="password" name="smtp_password" autocomplete="new-password">
+        {% if project.has_smtp_password %}<label><input type="checkbox" name="clear" value="smtp_password"> Remove the stored SMTP password</label>{% endif %}
+        <label>Brevo API key for this project &mdash; {{ "set" if project.has_brevo_api_key else "not set (uses the deployment key)" }}</label>
+        <input type="password" name="brevo_api_key" autocomplete="new-password">
+        {% if project.has_brevo_api_key %}<label><input type="checkbox" name="clear" value="brevo_api_key"> Remove the project's Brevo key (fall back to the deployment key)</label>{% endif %}
+        <button class="secondary" type="submit">Save secrets</button>
     </form>
     <form method="post" action="/admin/projects/{{ project.id }}/test-send" style="margin-top: 16px;">
         <label>Send a test e-mail through this project's channel</label>
