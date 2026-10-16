@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.requests import Request
-from starlette.responses import Response
+from starlette.responses import JSONResponse, Response
 
 from app.settings.config import settings
 
@@ -119,7 +119,36 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         return response
 
 
+# Paths the public host serves when ADMIN_ALLOWED_HOSTS is set (DVB-309): the client
+# API and health probes. Everything else (admin UI, admin/service API, project
+# management) only answers on the admin hosts.
+_PUBLIC_PREFIXES = (
+    "/health",
+    "/api/v1/messages",
+    "/api/v1/email-types",
+    "/api/v1/templates",
+)
+
+
+def is_public_path(path: str) -> bool:
+    return any(path == p or path.startswith(p + "/") for p in _PUBLIC_PREFIXES)
+
+
+class AdminHostMiddleware(BaseHTTPMiddleware):
+    """With ADMIN_ALLOWED_HOSTS set, non-admin hosts get a plain 404 for anything that is
+    not the public client API, so the admin is invisible on the public domain."""
+
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
+        allowed = {h.strip().lower() for h in settings.admin_allowed_hosts.split(",") if h.strip()}
+        if allowed:
+            host = (request.headers.get("host") or "").split(":")[0].lower()
+            if host not in allowed and not is_public_path(request.url.path):
+                return JSONResponse(status_code=404, content={"detail": "Not Found"})
+        return await call_next(request)
+
+
 def register_middleware(app: FastAPI) -> None:
+    app.add_middleware(AdminHostMiddleware)
     app.add_middleware(SecurityHeadersMiddleware)
     app.add_middleware(RequestContextMiddleware)
     app.add_middleware(

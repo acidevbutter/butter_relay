@@ -58,6 +58,17 @@ class ValidationFailedError(Exception):
         self.code = code
 
 
+class PayloadTooLargeError(Exception):
+    def __init__(self, detail: str = "Request body too large"):
+        self.detail = detail
+
+
+class ServiceUnavailableError(Exception):
+    def __init__(self, detail: str = "Service unavailable", retry_after: int = 30):
+        self.detail = detail
+        self.retry_after = retry_after
+
+
 class SessionRequiredError(Exception):
     """Raised by the admin-dashboard auth dependency when no valid session cookie
     is present. Redirects to the login page instead of returning a JSON 401,
@@ -106,4 +117,21 @@ async def handle_rate_limited(request: Request, exc: RateLimitExceeded) -> JSONR
         status_code=status.HTTP_429_TOO_MANY_REQUESTS,
         content={"detail": exc.detail, "code": "rate_limited"},
         headers={"Retry-After": str(max(exc.retry_after, 1))},
+    )
+
+
+@exception_handler(PayloadTooLargeError)
+async def handle_payload_too_large(request: Request, exc: PayloadTooLargeError) -> JSONResponse:
+    return JSONResponse(
+        status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+        content={"detail": exc.detail, "code": "payload_too_large"},
+    )
+
+
+@exception_handler(ServiceUnavailableError)
+async def handle_unavailable(request: Request, exc: ServiceUnavailableError) -> JSONResponse:
+    return JSONResponse(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        content={"detail": exc.detail, "code": "enqueue_failed"},
+        headers={"Retry-After": str(exc.retry_after)},
     )
