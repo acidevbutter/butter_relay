@@ -4,6 +4,12 @@ Registro retroativo baseado em todos os commits da branch `master`.
 
 ## Unreleased
 
+- Mensagem malformada não some mais (DVB-456): task com `project_id` que não é UUID,
+  ou sem `template_key`/`to`, é gravada em `rejected_messages` (migration `d2b9e6a4f1c8`;
+  guarda motivo, project id enviado, template, destinatário e só as chaves do payload) e
+  a task termina como FAILURE no Celery, com log `relay_message_rejected`, em vez de
+  "succeeded". Nova página no admin: `/admin/rejected-messages`.
+
 - Corrigido (#63): o `BlobClient` abre um `httpx.AsyncClient` por chamada. O cliente
   global ficava preso ao event loop da primeira task e as seguintes falhavam com
   "Event loop is closed".
