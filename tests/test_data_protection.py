@@ -36,7 +36,10 @@ async def test_brevo_error_keeps_code_and_redacts_body() -> None:
     def reject(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
             401,
-            json={"code": "unauthorized", "message": f"Key not found: {BREVO_KEY} (ana@example.com)"},
+            json={
+                "code": "unauthorized",
+                "message": f"Key not found: {BREVO_KEY} (ana@example.com)",
+            },
         )
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(reject)) as client:
