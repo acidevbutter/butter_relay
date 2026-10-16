@@ -157,3 +157,15 @@ async def test_retention_purges_old_payloads_and_rejected_recipients(
     assert rows["old_sent"].payload == {}
     assert rows["old_pending"].payload == {"k": 1}
     assert rows["recent_sent"].payload == {"k": 1}
+
+
+def test_purge_statement_is_valid_postgres_sql() -> None:
+    """Regression (#73): `payload != {}` worked in SQLite, but Postgres has no
+    `json <> json`; the real statement must compare the payload's text form."""
+    from sqlalchemy.dialects import postgresql
+
+    from app.messages.repository import MessageRepository
+
+    stmt = MessageRepository.purge_bodies_statement(datetime.now(UTC))
+    sql = str(stmt.compile(dialect=postgresql.dialect()))
+    assert "CAST(messages.payload AS TEXT) !=" in sql

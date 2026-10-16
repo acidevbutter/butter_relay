@@ -3,7 +3,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import func, select, update
+from sqlalchemy import Text, Update, cast, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -145,19 +145,24 @@ class MessageRepository:
         )
         return int(result.scalar_one())
 
-    async def purge_bodies(self, before: datetime) -> int:
+    @staticmethod
+    def purge_bodies_statement(before: datetime) -> Update:
         """Clears the payload of finished messages received before `before`. The row,
         status and subject stay for the delivery history."""
-        result = await self.session.execute(
+        return (
             update(Message)
             .where(
                 Message.received_at < before,
                 Message.status.in_([MessageStatus.SENT, MessageStatus.FAILED]),
-                Message.payload != {},
+                # Postgres has no "<>" for json; compare its text form (#73).
+                cast(Message.payload, Text) != "{}",
             )
             .values(payload={})
             .execution_options(synchronize_session=False)
         )
+
+    async def purge_bodies(self, before: datetime) -> int:
+        result = await self.session.execute(self.purge_bodies_statement(before))
         await self.session.commit()
         # UPDATE returns a CursorResult; Result's type hints don't expose rowcount.
         return int(getattr(result, "rowcount", 0) or 0)
