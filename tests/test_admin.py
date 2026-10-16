@@ -395,3 +395,32 @@ async def test_message_log_shows_the_delivery_channel(admin_client, db_session) 
     assert "<th>Channel</th>" in listing.text
     assert '<td class="muted">smtp</td>' in listing.text
     assert "<th>Channel</th><td>smtp</td>" in detail.text
+
+
+async def test_rejected_messages_page_lists_unparseable_tasks(admin_client, db_session) -> None:
+    from app.rejected_messages.repository import RejectedMessageRepository
+    from app.rejected_messages.schemas import RejectedMessageCreate
+
+    await RejectedMessageRepository(db_session).create(
+        RejectedMessageCreate(
+            broker_message_id="task-bad-admin",
+            reason="Malformed relay message: badly formed hexadecimal UUID string",
+            raw_project_id="",
+            template_key="devbutter_quote_received",
+            to_email="ana@example.com",
+            payload_keys=["name"],
+        )
+    )
+
+    page = await admin_client.get("/admin/rejected-messages")
+
+    assert page.status_code == 200
+    assert "task-bad-admin" in page.text
+    assert "badly formed hexadecimal UUID string" in page.text
+    assert "(empty)" in page.text
+    assert 'href="/admin/rejected-messages"' in page.text
+
+
+async def test_rejected_messages_page_requires_login(client) -> None:
+    response = await client.get("/admin/rejected-messages", follow_redirects=False)
+    assert response.status_code in (302, 303, 401)

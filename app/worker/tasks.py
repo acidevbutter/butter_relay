@@ -30,6 +30,9 @@ from app.messages.schemas import MessageCreate
 from app.messages.service import MessageService
 from app.projects.repository import ProjectRepository
 from app.projects.service import ProjectService
+from app.rejected_messages.repository import RejectedMessageRepository
+from app.rejected_messages.schemas import RejectedMessageCreate
+from app.rejected_messages.service import RejectedMessageService
 from app.settings.config import settings
 from app.templates_.repository import TemplateRepository
 from app.templates_.service import TemplateService
@@ -180,6 +183,34 @@ async def process_message(
             raise
 
 
+async def record_rejection(
+    broker_message_id: str,
+    reason: str,
+    project_id: Any,
+    template_key: Any,
+    to_email: Any,
+    payload: Any,
+) -> None:
+    """Persists a task the worker could not parse (DVB-456), then disposes the pool
+    for the same reason as process_message_isolated."""
+    try:
+        async with session_factory() as session:
+            await RejectedMessageService(RejectedMessageRepository(session)).record(
+                RejectedMessageCreate(
+                    broker_message_id=broker_message_id,
+                    reason=reason,
+                    raw_project_id=project_id,
+                    template_key=template_key,
+                    to_email=to_email,
+                    payload_keys=(
+                        sorted(str(k) for k in payload) if isinstance(payload, dict) else []
+                    ),
+                )
+            )
+    finally:
+        await engine.dispose()
+
+
 async def process_message_isolated(*args: Any, **kwargs: Any) -> None:
     """Runs process_message, then disposes the module-level engine's pool.
 
@@ -221,9 +252,10 @@ def process_message_task(
     -- see Message.broker_message_id / get_by_broker_message_id.
 
     MalformedMessageError never retries -- bad input won't fix itself with
-    time, so it's logged and dropped. A permanent provider error (EmailSendError.permanent)
-    marks the message terminally failed and returns without retrying. Everything
-    else in autoretry_for backs off exponentially (retry_backoff) up to
+    time -- but it is recorded in rejected_messages and the task ends FAILURE
+    instead of silently succeeding (DVB-456). A permanent provider error
+    (EmailSendError.permanent) marks the message terminally failed and returns
+    without retrying. Everything else in autoretry_for backs off exponentially (retry_backoff) up to
     MAX_RETRIES, then Celery marks the task FAILURE for good; Message.status is
     already FAILED in the DB from mark_failed by then (terminal_failure=True on
     the last try), so nothing vanishes silently. This replaces the old
@@ -243,5 +275,15 @@ def process_message_task(
             )
         )
     except MalformedMessageError as exc:
-        logger.error("dropping malformed relay message %s: %s", self.request.id, exc.detail)
-        return
+        # Retrying cannot fix bad input, but the task must not end as "succeeded":
+        # record it in rejected_messages and let Celery mark it FAILURE (DVB-456).
+        logger.error(
+            "rejecting malformed relay message %s: %s",
+            self.request.id,
+            exc.detail,
+            extra={"event": "relay_message_rejected", "broker_message_id": self.request.id},
+        )
+        asyncio.run(
+            record_rejection(self.request.id, exc.detail, project_id, template_key, to, payload)
+        )
+        raise
