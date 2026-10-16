@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 _KEY_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,149}$")
 
@@ -11,8 +11,10 @@ _KEY_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,149}$")
 class TemplateCreate(BaseModel):
     project_id: uuid.UUID
     key: str
-    subject_template: str
-    html_template: str
+    # Limits (DVB-188): subject fits Message.rendered_subject; HTML matches the planned
+    # 512 KB upload cap.
+    subject_template: str = Field(min_length=1, max_length=500)
+    html_template: str = Field(min_length=1, max_length=512 * 1024)
     variables_schema: dict[str, Any] = {}
 
     @field_validator("key")

@@ -4,6 +4,18 @@ Registro retroativo baseado em todos os commits da branch `master`.
 
 ## Unreleased
 
+- Rastreabilidade e limites (DVB-188):
+  - Histórico de tentativas em `message_attempts` (migration `e7c3a5b8d2f6`), mostrado no
+    detalhe da mensagem no admin.
+  - Mensagem reentregue ainda em `processing` (worker caiu no meio do envio) vira falha
+    terminal "delivery outcome unknown" em vez de ser enviada de novo: sem e-mail duplicado;
+    o admin decide o Resend.
+  - Limites: payload da task até `RELAY_MAX_PAYLOAD_BYTES` (64 KB, maior vai para
+    `rejected_messages`), payload precisa ser objeto, assunto do template até 500 caracteres,
+    HTML até 512 KB, `limit` da listagem de mensagens entre 1 e 200.
+  - Dashboard: status das últimas 24h, falhas terminais, rejeitadas, presas em `processing`
+    há mais de 15 min e backlog de cada fila no Redis.
+
 - Mensagem malformada não some mais (DVB-456): task com `project_id` que não é UUID,
   ou sem `template_key`/`to`, é gravada em `rejected_messages` (migration `d2b9e6a4f1c8`;
   guarda motivo, project id enviado, template, destinatário e só as chaves do payload) e
