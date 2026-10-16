@@ -1,13 +1,14 @@
+import builtins
 import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import ConflictError
-from app.messages.models import Message, MessageStatus
+from app.messages.models import Message, MessageAttempt, MessageStatus
 from app.messages.schemas import MessageCreate
 
 
@@ -69,10 +70,32 @@ class MessageRepository:
         await self.session.refresh(message)
         return message
 
+    def _record_attempt(
+        self,
+        message: Message,
+        outcome: str,
+        *,
+        terminal: bool = False,
+        error: str | None = None,
+        provider_message_id: str | None = None,
+    ) -> None:
+        self.session.add(
+            MessageAttempt(
+                message_id=message.id,
+                number=message.attempts,
+                outcome=outcome,
+                terminal=terminal,
+                error=error,
+                provider_message_id=provider_message_id,
+            )
+        )
+
     async def mark_sent(self, message: Message, provider_message_id: str) -> Message:
         message.status = MessageStatus.SENT
+        message.terminal_failure = False
         message.provider_message_id = provider_message_id
         message.sent_at = datetime.now(UTC)
+        self._record_attempt(message, "sent", provider_message_id=provider_message_id)
         await self.session.commit()
         await self.session.refresh(message)
         return message
@@ -83,6 +106,41 @@ class MessageRepository:
         message.status = MessageStatus.FAILED
         message.last_error = error
         message.terminal_failure = terminal
+        self._record_attempt(message, "failed", terminal=terminal, error=error)
         await self.session.commit()
         await self.session.refresh(message)
         return message
+
+    async def list_attempts(self, message_id: uuid.UUID) -> builtins.list[MessageAttempt]:
+        result = await self.session.execute(
+            select(MessageAttempt)
+            .where(MessageAttempt.message_id == message_id)
+            .order_by(MessageAttempt.created_at, MessageAttempt.number)
+        )
+        return list(result.scalars().all())
+
+    async def count_by_status(self, since: datetime) -> dict[str, int]:
+        result = await self.session.execute(
+            select(Message.status, func.count())
+            .where(Message.received_at >= since)
+            .group_by(Message.status)
+        )
+        return {str(status): int(count) for status, count in result.all()}
+
+    async def count_terminal_failures(self, since: datetime) -> int:
+        result = await self.session.execute(
+            select(func.count())
+            .select_from(Message)
+            .where(Message.received_at >= since, Message.terminal_failure.is_(True))
+        )
+        return int(result.scalar_one())
+
+    async def count_stuck_processing(self, older_than: datetime) -> int:
+        result = await self.session.execute(
+            select(func.count())
+            .select_from(Message)
+            .where(
+                Message.status == MessageStatus.PROCESSING, Message.received_at < older_than
+            )
+        )
+        return int(result.scalar_one())

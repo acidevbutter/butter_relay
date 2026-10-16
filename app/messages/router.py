@@ -1,6 +1,6 @@
 import uuid
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 
 from app.api_keys.dependencies import CurrentApiKey
 from app.core.exceptions import ForbiddenError
@@ -16,7 +16,7 @@ async def list_messages(
     current_api_key: CurrentApiKey,
     service: MessageServiceDep,
     status_filter: MessageStatus | None = None,
-    limit: int = 100,
+    limit: int = Query(100, ge=1, le=200),
 ) -> list[Message]:
     # Scope is forced to the caller's own project -- an API key must never be able to
     # read another project's relayed messages by passing a different project_id.

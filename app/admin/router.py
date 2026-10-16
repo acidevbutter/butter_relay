@@ -25,6 +25,7 @@ from app.core.email_provider import (
     get_email_provider_for_project,
 )
 from app.core.exceptions import ConflictError, NotFoundError, ValidationFailedError
+from app.core.queue_stats import queue_backlog
 from app.messages.dependencies import MessageServiceDep
 from app.messages.models import MessageStatus
 from app.projects.dependencies import ProjectServiceDep
@@ -56,11 +57,30 @@ def _delivery_config(smtp_host: str, smtp_port: str) -> DeliveryConfig:
 
 @router.get("", summary="Admin dashboard home")
 async def dashboard(
-    request: Request, admin_user: CurrentAdminUser, message_service: MessageServiceDep
+    request: Request,
+    admin_user: CurrentAdminUser,
+    message_service: MessageServiceDep,
+    project_service: ProjectServiceDep,
+    rejected_message_service: RejectedMessageServiceDep,
 ) -> HTMLResponse:
     recent_messages = await message_service.list(limit=10)
+    # Minimum delivery health (DVB-188): last 24h by status, terminal failures,
+    # rejected tasks, rows stuck mid-send and the Celery backlog per queue.
+    stats = await message_service.stats()
+    stats["rejected"] = await rejected_message_service.count_recent()
+    queues = sorted(
+        {settings.relay_queue_name}
+        | {p.queue_name for p in await project_service.list() if p.is_active}
+    )
     return templates.TemplateResponse(
-        request, "dashboard.html", {"admin_user": admin_user, "recent_messages": recent_messages}
+        request,
+        "dashboard.html",
+        {
+            "admin_user": admin_user,
+            "recent_messages": recent_messages,
+            "stats": stats,
+            "backlog": await queue_backlog(queues),
+        },
     )
 
 
@@ -472,6 +492,7 @@ async def message_detail(
         {
             "admin_user": admin_user,
             "message": message,
+            "attempts": await message_service.list_attempts(message.id),
             "subject": subject,
             "html": html,
             "render_error": render_error,

@@ -29,6 +29,8 @@ class Settings(BaseSettings):
     # `redis` service for dev.
     redis_url: str = "redis://redis:6379/0"
     relay_queue_name: str = "relay-shared"
+    # Largest JSON payload a task may carry; bigger ones are rejected, not rendered (DVB-188).
+    relay_max_payload_bytes: int = 64 * 1024
 
     brevo_api_key: str = ""
     allowed_recipient_domains: str = ""
