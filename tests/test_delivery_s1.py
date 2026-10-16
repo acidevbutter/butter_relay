@@ -71,7 +71,8 @@ async def test_brevo_sends_every_outbound_field() -> None:
     assert captured["attachment"] == [{"name": "nota.pdf", "content": "JVBERi0xLjQ="}]
 
 
-def test_factory_prefers_the_project_brevo_key() -> None:
+def test_factory_prefers_the_project_brevo_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "brevo_api_key", "shared-key")
     own = get_email_provider_for_project("brevo", {}, settings, {"brevo_api_key": "own"})
     shared = get_email_provider_for_project("brevo", {}, settings, {})
     assert isinstance(own, BrevoEmailProvider) and own._api_key == "own"

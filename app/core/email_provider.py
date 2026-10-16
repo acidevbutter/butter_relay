@@ -310,6 +310,10 @@ def get_email_provider_for_project(
     timeout = float(config.get("timeout_seconds") or DEFAULT_TIMEOUT_SECONDS)
     if provider == DeliveryProvider.BREVO.value:
         api_key = str(secrets.get("brevo_api_key") or settings.brevo_api_key)
+        if not api_key:
+            raise EmailSendError(
+                "No Brevo API key: set the project's own key or BREVO_API_KEY", permanent=True
+            )
         return BrevoEmailProvider(api_key=api_key, timeout=timeout)
     if provider == DeliveryProvider.SMTP.value:
         default_security = (

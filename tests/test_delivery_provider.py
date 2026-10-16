@@ -37,7 +37,10 @@ PROJECT_PAYLOAD = {
 # --- factory -------------------------------------------------------------------
 
 
-def test_factory_returns_brevo_by_default_even_in_development() -> None:
+def test_factory_returns_brevo_by_default_even_in_development(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "brevo_api_key", "shared-key")
     assert settings.environment == "development"
     provider = get_email_provider_for_project("brevo", {}, settings)
     assert isinstance(provider, BrevoEmailProvider)

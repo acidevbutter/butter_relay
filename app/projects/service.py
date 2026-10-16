@@ -1,8 +1,13 @@
+import builtins
 import uuid
 from typing import Any
 
 from app.core.decorators import log_errors
-from app.core.email_provider import EmailProvider, get_email_provider_for_project
+from app.core.email_provider import (
+    DeliveryProvider,
+    EmailProvider,
+    get_email_provider_for_project,
+)
 from app.core.exceptions import NotFoundError, ValidationFailedError
 from app.core.secrets import SECRET_FIELDS, decrypt_secrets, encrypt_secrets
 from app.projects.models import Project
@@ -67,3 +72,13 @@ class ProjectService:
             settings,
             self.delivery_secrets(project),
         )
+
+    async def projects_needing_shared_brevo_key(self) -> builtins.list[Project]:
+        """Active Brevo projects without their own key, i.e. relying on BREVO_API_KEY."""
+        return [
+            project
+            for project in await self.list()
+            if project.is_active
+            and project.delivery_provider == DeliveryProvider.BREVO.value
+            and not project.has_brevo_api_key
+        ]
