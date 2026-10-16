@@ -168,7 +168,7 @@ Lado `devbutter_backend` (hoje: um único `RELAY_PROJECT_ID` global e `RelayClie
 Para criar os sete templates padrão que ainda não existem, execute no ambiente do Relay:
 
 ```bash
-python scripts/seed_devbutter_templates.py <project-uuid>
+python -m scripts.seed_devbutter_templates <project-uuid>
 ```
 
 O comando valida e publica somente as chaves sem versão ativa; não envia mensagens nem

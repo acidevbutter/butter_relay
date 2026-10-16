@@ -1,7 +1,7 @@
 """Create missing transactional templates for a DevButter Relay project.
 
 Run in the Relay environment (or its API container):
-    python scripts/seed_devbutter_templates.py <project-uuid>
+    python -m scripts.seed_devbutter_templates <project-uuid>
 
 Existing active templates are left untouched. No messages are sent.
 """
