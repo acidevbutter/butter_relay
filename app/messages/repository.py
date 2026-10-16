@@ -3,12 +3,12 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import Text, Update, cast, func, select, update
+from sqlalchemy import Text, Update, cast, delete, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import ConflictError
-from app.messages.models import Message, MessageAttempt, MessageStatus
+from app.messages.models import Message, MessageAttachment, MessageAttempt, MessageStatus
 from app.messages.schemas import MessageCreate
 
 
@@ -154,15 +154,80 @@ class MessageRepository:
             .where(
                 Message.received_at < before,
                 Message.status.in_([MessageStatus.SENT, MessageStatus.FAILED]),
-                # Postgres has no "<>" for json; compare its text form (#73).
-                cast(Message.payload, Text) != "{}",
+                or_(
+                    # Postgres has no "<>" for json; compare its text form (#73).
+                    cast(Message.payload, Text) != "{}",
+                    Message.raw_html.is_not(None),
+                    Message.raw_text.is_not(None),
+                ),
             )
-            .values(payload={})
+            .values(payload={}, raw_html=None, raw_text=None)
             .execution_options(synchronize_session=False)
         )
 
     async def purge_bodies(self, before: datetime) -> int:
         result = await self.session.execute(self.purge_bodies_statement(before))
+        await self.session.execute(
+            delete(MessageAttachment).where(
+                MessageAttachment.message_id.in_(
+                    select(Message.id).where(
+                        Message.received_at < before,
+                        Message.status.in_([MessageStatus.SENT, MessageStatus.FAILED]),
+                    )
+                )
+            )
+        )
         await self.session.commit()
         # UPDATE returns a CursorResult; Result's type hints don't expose rowcount.
         return int(getattr(result, "rowcount", 0) or 0)
+
+    # --- HTTP send API (DVB-309) ---------------------------------------------------
+
+    async def get_by_idempotency_key(
+        self, project_id: uuid.UUID, idempotency_key: str
+    ) -> Message | None:
+        result = await self.session.execute(
+            select(Message).where(
+                Message.project_id == project_id, Message.idempotency_key == idempotency_key
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def create_with_attachments(
+        self, message: Message, attachments: builtins.list[MessageAttachment]
+    ) -> Message:
+        self.session.add(message)
+        try:
+            await self.session.flush()
+            for attachment in attachments:
+                attachment.message_id = message.id
+                self.session.add(attachment)
+            await self.session.commit()
+        except IntegrityError as exc:
+            await self.session.rollback()
+            raise ConflictError("A message with this Idempotency-Key already exists") from exc
+        await self.session.refresh(message)
+        return message
+
+    async def list_attachments(self, message_id: uuid.UUID) -> builtins.list[MessageAttachment]:
+        result = await self.session.execute(
+            select(MessageAttachment).where(MessageAttachment.message_id == message_id)
+        )
+        return list(result.scalars().all())
+
+    async def delete_attachments(self, message_id: uuid.UUID) -> None:
+        await self.session.execute(
+            delete(MessageAttachment).where(MessageAttachment.message_id == message_id)
+        )
+        await self.session.commit()
+
+    async def mark_pending(self, message: Message) -> Message:
+        message.status = MessageStatus.PENDING
+        message.last_error = None
+        message.terminal_failure = False
+        await self.session.commit()
+        await self.session.refresh(message)
+        return message
+
+    async def get_by_id(self, message_id: uuid.UUID) -> Message | None:
+        return await self.session.get(Message, message_id)

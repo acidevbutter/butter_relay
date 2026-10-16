@@ -19,7 +19,7 @@ rota HTTP. Contrato de campos e respostas: `/openapi.json` da instância.
 | `/api/v1/projects` | listar, criar, consultar e alterar projetos | `app/projects/` |
 | `/api/v1/api-keys` | listar, criar e revogar chaves do projeto | `app/api_keys/` |
 | `/api/v1/templates` | listar, publicar, consultar e prever template | `app/templates_/` |
-| `/api/v1/messages` | listar e consultar log de mensagens | `app/messages/` |
+| `/api/v1/messages` | enviar (`POST /send`, HTTPS, template ou raw), listar e consultar log de mensagens | `app/messages/` |
 | `/admin/login`, `/admin/logout` | sessão administrativa | `app/auth/` |
 | `/admin/projects`, `/admin/templates`, `/admin/messages` | dashboard HTML: gestão, preview e reenvio | `app/admin/router.py` |
 

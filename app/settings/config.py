@@ -33,6 +33,12 @@ class Settings(BaseSettings):
     relay_max_payload_bytes: int = 64 * 1024
     # Requests per minute per API key (DVB-308); a project may override it. 0 disables.
     relay_default_rate_per_minute: int = 120
+    # Legacy send_task(project_id, template_key, to, payload) straight into Redis trusts
+    # the producer's project_id (H-02). Turn off once producers use the HTTP API.
+    allow_legacy_send_task: bool = True
+    # When set, /admin and /api/v1/admin respond only on these hosts (comma-separated);
+    # other hosts only serve the public send API and /health (DVB-309).
+    admin_allowed_hosts: str = ""
     # Payloads (rendered personal data) of finished messages and the recipient of
     # rejected tasks are cleared after this many days (DVB-208 / LGPD).
     message_body_retention_days: int = 30
