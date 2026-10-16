@@ -20,6 +20,7 @@
         {% include "partials/_delivery_fields.html" %}
         <label><input type="checkbox" name="external" value="true" {{ "checked" if project.external }}> External project (new API keys expire after 30 days)</label>
         <label><input type="checkbox" name="is_active" value="true" {{ "checked" if project.is_active }}> Active (inactive projects are skipped by the worker)</label>
+        <label><input type="checkbox" name="allow_undeclared_types" value="true" {{ "checked" if project.allow_undeclared_types }}> Allow sending e-mail types that are not declared below</label>
         <button type="submit">Save settings</button>
     </form>
     <form method="post" action="/admin/projects/{{ project.id }}/secrets" style="margin-top: 16px;" autocomplete="off">
@@ -118,17 +119,66 @@
         {% endfor %}
         </tbody>
     </table>
-    <form id="template-form" method="post" action="/admin/projects/{{ project.id }}/templates" style="margin-top: 12px;">
+    <form id="template-form" method="post" action="/admin/projects/{{ project.id }}/templates" enctype="multipart/form-data" style="margin-top: 12px;">
         <label>Template key (letters, digits, _ - .)</label>
         <input type="text" id="template_key" name="key" required placeholder="welcome_email" value="{{ form.get('key', '') }}">
         <label>Subject (Jinja2)</label>
         <input type="text" id="subject_template" name="subject_template" required placeholder="Welcome, {{ '{{' }} name {{ '}}' }}!" value="{{ form.get('subject_template', '') }}">
         <label>HTML body (Jinja2)</label>
-        <textarea id="html_template" name="html_template" rows="8" required placeholder="&lt;p&gt;Hi {{ '{{' }} name {{ '}}' }}&lt;/p&gt;">{{ form.get('html_template', '') }}</textarea>
+        <textarea id="html_template" name="html_template" rows="8" placeholder="&lt;p&gt;Hi {{ '{{' }} name {{ '}}' }}&lt;/p&gt;">{{ form.get('html_template', '') }}</textarea>
+        <label>&hellip;or upload an .html file (up to 512 KB; replaces the text above)</label>
+        <input type="file" name="html_file" accept=".html,.htm,text/html">
         <label>Variables schema (optional JSON Schema; payloads that don't match are rejected)</label>
         <textarea id="variables_schema" name="variables_schema" rows="4" placeholder='{"type": "object", "required": ["name"]}'>{{ form.get('variables_schema', '') }}</textarea>
         <button type="button" class="secondary" data-apply-starter>Use DevButter starter</button>
         <button type="submit">Publish new version</button>
+    </form>
+</div>
+
+<div class="card" id="email-types">
+    <h3>E-mail types</h3>
+    <p class="muted">What this client sends. Clients discover them at <code>GET /api/v1/email-types</code>; an undeclared type is refused unless the setting above allows it. Template types render the active template with the same key.</p>
+    <table>
+        <thead><tr><th>Key</th><th>Category</th><th>Mode</th><th>Locale</th><th>Status</th><th></th></tr></thead>
+        <tbody>
+        {% for et in email_types %}
+            <tr>
+                <td><code>{{ et.key }}</code>{% if et.description %}<div class="muted">{{ et.description }}</div>{% endif %}</td>
+                <td>{{ et.category }}</td>
+                <td>{{ et.mode }}</td>
+                <td>{{ et.locale or "-" }}</td>
+                <td>{{ "active" if et.is_active else "inactive" }}</td>
+                <td>
+                    <form method="post" action="/admin/projects/{{ project.id }}/email-types/{{ et.id }}/toggle" style="display:inline">
+                        <button class="secondary" type="submit">{{ "Deactivate" if et.is_active else "Activate" }}</button>
+                    </form>
+                    {% if et.mode != "raw" %}
+                    <form hx-post="/admin/projects/{{ project.id }}/email-types/{{ et.id }}/preview" hx-target="#et-preview-{{ et.id }}" hx-swap="innerHTML" style="display:inline">
+                        <button class="secondary" type="submit">Preview with sample</button>
+                    </form>
+                    {% endif %}
+                </td>
+            </tr>
+            <tr><td colspan="6"><details><summary class="muted">Sample payload</summary><pre>{{ et.sample_payload | tojson(indent=2) }}</pre></details><div id="et-preview-{{ et.id }}"></div></td></tr>
+        {% else %}
+            <tr><td colspan="6" class="muted">No e-mail types declared yet.</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    <form method="post" action="/admin/projects/{{ project.id }}/email-types" style="margin-top: 12px;">
+        <label>Key (lowercase letters, digits, . _ -)</label>
+        <input type="text" name="key" required placeholder="woocommerce.customer_processing_order">
+        <label>Category</label>
+        <select name="category">{% for c in email_categories %}<option value="{{ c.value }}">{{ c.value }}</option>{% endfor %}</select>
+        <label>Mode</label>
+        <select name="mode">{% for m in email_modes %}<option value="{{ m.value }}">{{ m.value }}</option>{% endfor %}</select>
+        <label>Description</label>
+        <input type="text" name="description">
+        <label>Locale</label>
+        <input type="text" name="locale" placeholder="pt-BR">
+        <label>Sample payload (JSON)</label>
+        <textarea name="sample_payload" rows="3" placeholder="{}"></textarea>
+        <button type="submit">Save e-mail type</button>
     </form>
 </div>
 

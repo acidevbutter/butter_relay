@@ -48,8 +48,12 @@ class ForbiddenError(Exception):
 
 
 class ValidationFailedError(Exception):
-    def __init__(self, detail: str = "Validation failed"):
+    """422. `code` is an optional stable, machine-readable reason for API clients
+    (e.g. "unknown_email_type")."""
+
+    def __init__(self, detail: str = "Validation failed", code: str | None = None):
         self.detail = detail
+        self.code = code
 
 
 class SessionRequiredError(Exception):
@@ -83,9 +87,10 @@ async def handle_forbidden(request: Request, exc: ForbiddenError) -> JSONRespons
 
 @exception_handler(ValidationFailedError)
 async def handle_validation_failed(request: Request, exc: ValidationFailedError) -> JSONResponse:
-    return JSONResponse(
-        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, content={"detail": exc.detail}
-    )
+    content: dict[str, Any] = {"detail": exc.detail}
+    if exc.code:
+        content["code"] = exc.code
+    return JSONResponse(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, content=content)
 
 
 @exception_handler(SessionRequiredError)

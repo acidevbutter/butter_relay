@@ -1,10 +1,12 @@
+import json
 import uuid
+from typing import Annotated
 
-from fastapi import APIRouter, status
+from fastapi import APIRouter, File, Form, Response, UploadFile, status
 
 from app.api_keys.dependencies import CurrentApiKey
 from app.api_keys.models import ApiKey
-from app.core.exceptions import ForbiddenError
+from app.core.exceptions import ForbiddenError, ValidationFailedError
 from app.templates_.dependencies import TemplateServiceDep
 from app.templates_.models import Template
 from app.templates_.schemas import (
@@ -81,3 +83,56 @@ async def activate_template(
     template = await service.get(template_id)
     _require_same_project(current_api_key, template.project_id)
     return await service.activate(template_id)
+
+
+MAX_UPLOAD_BYTES = 512 * 1024
+
+
+@router.post(
+    "/upload",
+    response_model=TemplateRead,
+    summary="Upload an HTML file as a new template version (no-op when unchanged)",
+    responses={200: {"description": "Same content as the latest version: nothing created"}},
+    status_code=status.HTTP_201_CREATED,
+)
+async def upload_template(
+    response: Response,
+    current_api_key: CurrentApiKey,
+    service: TemplateServiceDep,
+    file: Annotated[UploadFile, File(description=".html file, up to 512 KB")],
+    key: Annotated[str, Form()],
+    subject_template: Annotated[str, Form()],
+    variables_schema: Annotated[str, Form()] = "",
+    activate: Annotated[bool, Form()] = True,
+) -> Template:
+    """The project comes from the API key. Validation is the same as publishing
+    (sandboxed Jinja, JSON Schema, key format): a broken upload is a 422 and never
+    becomes the active version (DVB-307)."""
+    if not (file.filename or "").lower().endswith((".html", ".htm")):
+        raise ValidationFailedError("file must be an .html document", code="invalid_file")
+    raw = await file.read(MAX_UPLOAD_BYTES + 1)
+    if len(raw) > MAX_UPLOAD_BYTES:
+        raise ValidationFailedError("file is larger than 512 KB", code="file_too_large")
+    try:
+        html = raw.decode("utf-8")
+        schema = json.loads(variables_schema) if variables_schema.strip() else {}
+    except UnicodeDecodeError as exc:
+        raise ValidationFailedError("file must be UTF-8 text", code="invalid_file") from exc
+    except json.JSONDecodeError as exc:
+        raise ValidationFailedError(f"variables_schema is not valid JSON: {exc.msg}") from exc
+    if not isinstance(schema, dict):
+        raise ValidationFailedError("variables_schema must be a JSON object")
+    try:
+        payload = TemplateCreate(
+            project_id=current_api_key.project_id,
+            key=key,
+            subject_template=subject_template,
+            html_template=html,
+            variables_schema=schema,
+        )
+    except ValueError as exc:  # pydantic ValidationError (key format, sizes)
+        raise ValidationFailedError(str(exc)) from exc
+    template, created = await service.publish_if_changed(payload, activate=activate)
+    if not created:
+        response.status_code = status.HTTP_200_OK
+    return template

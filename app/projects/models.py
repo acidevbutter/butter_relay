@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import JSON, Boolean, DateTime, String, Text, func
+from sqlalchemy import JSON, Boolean, DateTime, String, Text, false, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.email_provider import DeliveryProvider
@@ -40,6 +40,11 @@ class Project(Base):
     # Fernet-encrypted JSON {"smtp_password": ..., "brevo_api_key": ...} (DVB-306).
     # Write-only: never serialised; read only by the provider factory.
     delivery_secrets_enc: Mapped[str | None] = mapped_column(Text, default=None)
+    # Sending a type that is not declared in email_types is refused (422) unless this is
+    # set (DVB-307).
+    allow_undeclared_types: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=false()
+    )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
