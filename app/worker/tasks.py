@@ -11,6 +11,7 @@ task invocation.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import uuid
 from typing import Any
@@ -57,6 +58,14 @@ def _parse_task_args(
         raise MalformedMessageError(f"Malformed relay message: {exc}") from exc
     if not template_key or not to_email:
         raise MalformedMessageError("Malformed relay message: template_key and to are required")
+    if payload is not None and not isinstance(payload, dict):
+        raise MalformedMessageError("Malformed relay message: payload must be an object")
+    size = len(json.dumps(payload or {}, default=str).encode())
+    if size > settings.relay_max_payload_bytes:
+        raise MalformedMessageError(
+            f"Malformed relay message: payload is {size} bytes, "
+            f"limit is {settings.relay_max_payload_bytes}"
+        )
     return parsed_project_id, template_key, to_email, dict(payload or {})
 
 
@@ -96,6 +105,15 @@ async def process_message(
             # error, blocked recipient, retries spent) must not send it again; an admin
             # can still resend it explicitly.
             logger.warning("ignoring redelivery of terminally failed message %s", existing.id)
+            return
+        if existing is not None and existing.status == MessageStatus.PROCESSING:
+            # Only a worker that died between "processing" and an outcome leaves a row
+            # here (every handled failure ends in mark_failed). The provider may or may
+            # not have accepted the e-mail, so sending again risks a duplicate: stop and
+            # make it visible instead; an admin can resend after checking (DVB-188).
+            detail = "delivery outcome unknown: a previous attempt stopped mid-send"
+            logger.error("%s (message %s)", detail, existing.id)
+            await message_service.mark_failed(existing, detail, terminal=True)
             return
 
         message: Message | None = existing
@@ -177,6 +195,8 @@ async def process_message(
             # "processing" (DVB-344). The session may be unusable after a DB error.
             if message is not None:
                 await session.rollback()
+                # rollback expires loaded rows; reload before recording the attempt.
+                await session.refresh(message)
                 await message_service.mark_failed(
                     message, f"unexpected error: {type(exc).__name__}", terminal=True
                 )

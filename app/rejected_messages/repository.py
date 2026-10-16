@@ -1,4 +1,6 @@
-from sqlalchemy import select
+from datetime import datetime
+
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.rejected_messages.models import RejectedMessage
@@ -27,3 +29,11 @@ class RejectedMessageRepository:
         await self.session.commit()
         await self.session.refresh(rejected)
         return rejected
+
+    async def count_since(self, since: datetime) -> int:
+        result = await self.session.execute(
+            select(func.count())
+            .select_from(RejectedMessage)
+            .where(RejectedMessage.received_at >= since)
+        )
+        return int(result.scalar_one())

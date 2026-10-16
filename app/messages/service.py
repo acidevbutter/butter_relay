@@ -1,9 +1,11 @@
+import builtins
 import uuid
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from app.core.decorators import log_errors
 from app.core.exceptions import NotFoundError
-from app.messages.models import Message, MessageStatus
+from app.messages.models import Message, MessageAttempt, MessageStatus
 from app.messages.repository import MessageRepository
 from app.messages.schemas import MessageCreate
 
@@ -47,3 +49,19 @@ class MessageService:
         self, message: Message, error: str, *, terminal: bool = False
     ) -> Message:
         return await self.repository.mark_failed(message, error, terminal=terminal)
+
+    async def list_attempts(self, message_id: uuid.UUID) -> builtins.list[MessageAttempt]:
+        return await self.repository.list_attempts(message_id)
+
+    async def stats(self, window: timedelta = timedelta(hours=24)) -> dict[str, Any]:
+        """Minimum delivery health numbers for the admin dashboard (DVB-188)."""
+        now = datetime.now(UTC)
+        since = now - window
+        return {
+            "by_status": await self.repository.count_by_status(since),
+            "terminal_failures": await self.repository.count_terminal_failures(since),
+            # A message still "processing" after 15 min means a worker died mid-send.
+            "stuck_processing": await self.repository.count_stuck_processing(
+                now - timedelta(minutes=15)
+            ),
+        }

@@ -62,3 +62,24 @@ class Message(Base):
         DateTime(timezone=True), server_default=func.now()
     )
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+
+
+class MessageAttempt(Base):
+    """One row per delivery attempt that reached an outcome (DVB-188): the message row
+    only keeps the latest status/last_error, this keeps the history."""
+
+    __tablename__ = "message_attempts"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    message_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("messages.id", ondelete="CASCADE"), index=True
+    )
+    # Message.attempts at the time (0 = failed before rendering, e.g. Blob lookup).
+    number: Mapped[int] = mapped_column(Integer)
+    outcome: Mapped[str] = mapped_column(String(20))  # sent | failed
+    terminal: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
+    error: Mapped[str | None] = mapped_column(Text, default=None)
+    provider_message_id: Mapped[str | None] = mapped_column(String(200), default=None)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )

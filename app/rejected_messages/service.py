@@ -1,3 +1,5 @@
+from datetime import UTC, datetime, timedelta
+
 from app.core.decorators import log_errors
 from app.rejected_messages.models import RejectedMessage
 from app.rejected_messages.repository import RejectedMessageRepository
@@ -18,3 +20,6 @@ class RejectedMessageService:
         if existing is not None:
             return existing
         return await self.repository.create(payload)
+
+    async def count_recent(self, window: timedelta = timedelta(hours=24)) -> int:
+        return await self.repository.count_since(datetime.now(UTC) - window)

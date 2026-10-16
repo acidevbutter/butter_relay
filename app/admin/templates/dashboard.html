@@ -3,6 +3,31 @@
 {% block content %}
 <h1>Dashboard</h1>
 <div class="card">
+    <h3>Delivery health (last 24h)</h3>
+    <table id="delivery-health">
+        <tbody>
+            {% for status in ["sent", "failed", "processing", "pending"] %}
+            <tr><th>{{ status }}</th><td>{{ stats.by_status.get(status, 0) }}</td></tr>
+            {% endfor %}
+            <tr><th>Failed for good</th><td>{{ stats.terminal_failures }}</td></tr>
+            <tr><th>Rejected (unparseable)</th><td><a class="link" href="/admin/rejected-messages">{{ stats.rejected }}</a></td></tr>
+            <tr><th>Stuck in processing &gt; 15 min</th><td>{{ stats.stuck_processing }}</td></tr>
+        </tbody>
+    </table>
+    <h3>Queue backlog</h3>
+    {% if backlog is none %}
+    <p class="error">Could not read the broker (Redis).</p>
+    {% else %}
+    <table id="queue-backlog">
+        <tbody>
+            {% for queue, size in backlog.items() %}
+            <tr><th><code>{{ queue }}</code></th><td>{{ size }}</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% endif %}
+</div>
+<div class="card">
     <h3>Recent messages</h3>
     <table>
         <thead>
