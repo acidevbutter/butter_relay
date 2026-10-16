@@ -29,6 +29,7 @@ from app.messages.dependencies import MessageServiceDep
 from app.messages.models import MessageStatus
 from app.projects.dependencies import ProjectServiceDep
 from app.projects.schemas import DeliveryConfig, ProjectCreate, ProjectUpdate
+from app.rejected_messages.dependencies import RejectedMessageServiceDep
 from app.settings.config import settings
 from app.templates_.dependencies import TemplateServiceDep
 from app.templates_.schemas import TemplateCreate
@@ -432,6 +433,20 @@ async def list_messages(
             "project_id": project_id,
             "status_filter": status_filter,
         },
+    )
+
+
+@router.get("/rejected-messages", summary="Tasks the worker could not parse (DVB-456)")
+async def list_rejected_messages(
+    request: Request,
+    admin_user: CurrentAdminUser,
+    rejected_message_service: RejectedMessageServiceDep,
+) -> HTMLResponse:
+    rejected = await rejected_message_service.list(limit=200)
+    return templates.TemplateResponse(
+        request,
+        "rejected_messages.html",
+        {"admin_user": admin_user, "rejected": rejected},
     )
 
 

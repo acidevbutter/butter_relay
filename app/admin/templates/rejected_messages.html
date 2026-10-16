@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Rejected messages - Butter Relay{% endblock %}
+{% block content %}
+<h1>Rejected messages</h1>
+<p class="muted">Tasks the worker could not parse (invalid project id, missing template key or recipient). They never reached a project's message log; fix the producer and send again.</p>
+<div class="card">
+    <table>
+        <thead>
+            <tr><th>Received</th><th>Task id</th><th>Reason</th><th>Project id sent</th><th>Template</th><th>To</th><th>Payload keys</th></tr>
+        </thead>
+        <tbody>
+        {% for r in rejected %}
+            <tr>
+                <td class="muted">{{ r.received_at }}</td>
+                <td><code>{{ r.broker_message_id }}</code></td>
+                <td>{{ r.reason }}</td>
+                <td><code>{{ r.raw_project_id if r.raw_project_id is not none else "(empty)" }}</code></td>
+                <td>{{ r.template_key or "-" }}</td>
+                <td>{{ r.to_email or "-" }}</td>
+                <td class="muted">{{ r.payload_keys | join(", ") }}</td>
+            </tr>
+        {% else %}
+            <tr><td colspan="7" class="muted">No rejected messages.</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}
