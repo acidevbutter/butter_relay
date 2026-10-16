@@ -4,6 +4,19 @@ Registro retroativo baseado em todos os commits da branch `master`.
 
 ## Unreleased
 
+- S2, catálogo de tipos e upload (DVB-307):
+  - Domínio `email_types` (migration `a3c9e5f7b1d2`) com chave por projeto, categoria
+    (`transactional`/`marketing`/`system`), modo (`template`/`raw`/`both`), locale e
+    `sample_payload`, além de `projects.allow_undeclared_types`.
+  - `GET /api/v1/email-types` para auto-descoberta (só tipos ativos do próprio projeto).
+    Tipo não declarado no envio gera 422 `unknown_email_type` (aplicado na S4).
+  - `POST /api/v1/templates/upload` (multipart, .html até 512 KB, UTF-8): 201 cria
+    versão, 200 quando o conteúdo é o mesmo (hash de subject + html + schema); upload
+    inválido gera 422 sem tocar na versão ativa; `activate=false` cria rascunho.
+  - 422 da API passa a ter `code` opcional.
+  - Admin: card "E-mail types" (cadastrar, ativar/desativar, preview com o sample),
+    upload de .html na publicação de template e checkbox de tipos não declarados.
+
 - Validação de configuração (DVB-206, M-03):
   - `DEBUG=true` fora de development é recusado no boot (desligaria o cookie de sessão
     seguro).

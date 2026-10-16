@@ -11,7 +11,7 @@ import uuid
 from dataclasses import dataclass
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, Form, Request
+from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse
 from pydantic import EmailStr, TypeAdapter, ValidationError
 
@@ -28,6 +28,8 @@ from app.core.email_provider import (
 from app.core.exceptions import ConflictError, NotFoundError, ValidationFailedError
 from app.core.queue_stats import queue_backlog
 from app.core.secrets import SecretsKeyError
+from app.email_types.dependencies import EmailTypeServiceDep
+from app.email_types.schemas import EmailCategory, EmailTypeCreate, EmailTypeMode
 from app.messages.dependencies import MessageServiceDep
 from app.messages.models import MessageStatus
 from app.projects.dependencies import ProjectServiceDep
@@ -191,6 +193,7 @@ class ProjectPage:
     project_service: ProjectServiceDep
     api_key_service: ApiKeyServiceDep
     template_service: TemplateServiceDep
+    email_type_service: EmailTypeServiceDep
 
     async def render(
         self,
@@ -213,6 +216,9 @@ class ProjectPage:
                 "project": project,
                 "api_keys": await self.api_key_service.list_for_project(project_id),
                 "templates": await self.template_service.list_for_project(project_id),
+                "email_types": await self.email_type_service.list(project_id),
+                "email_categories": list(EmailCategory),
+                "email_modes": list(EmailTypeMode),
                 "new_key_plaintext": new_key_plaintext,
                 "notice": notice,
                 "error": error,
@@ -250,6 +256,7 @@ async def update_project_settings(
     smtp_username: Annotated[str, Form()] = "",
     external: Annotated[bool, Form()] = False,
     is_active: Annotated[bool, Form()] = False,
+    allow_undeclared_types: Annotated[bool, Form()] = False,
 ) -> HTMLResponse:
     try:
         payload = ProjectUpdate(
@@ -260,6 +267,7 @@ async def update_project_settings(
             delivery_config=_delivery_config(smtp_host, smtp_port, smtp_security, smtp_username),
             external=external,
             is_active=is_active,
+            allow_undeclared_types=allow_undeclared_types,
         )
         await page.project_service.update(project_id, payload)
     except ValidationError as exc:
@@ -390,10 +398,26 @@ async def publish_template(
     project_id: uuid.UUID,
     key: Annotated[str, Form()],
     subject_template: Annotated[str, Form()],
-    html_template: Annotated[str, Form()],
     page: ProjectPageDep,
+    html_template: Annotated[str, Form()] = "",
     variables_schema: Annotated[str, Form()] = "",
+    html_file: Annotated[UploadFile | None, File()] = None,
 ) -> HTMLResponse:
+    if html_file is not None and html_file.filename:
+        # An uploaded .html file wins over the textarea (DVB-307); same 512 KB cap.
+        raw = await html_file.read(512 * 1024 + 1)
+        if len(raw) > 512 * 1024:
+            return await page.render(
+                request, admin_user, project_id,
+                error="HTML file is larger than 512 KB", status_code=422,
+            )
+        try:
+            html_template = raw.decode("utf-8")
+        except UnicodeDecodeError:
+            return await page.render(
+                request, admin_user, project_id,
+                error="HTML file must be UTF-8 text", status_code=422,
+            )
     form = {
         "key": key,
         "subject_template": subject_template,
@@ -434,6 +458,102 @@ async def publish_template(
     return await page.render(
         request, admin_user, project_id,
         notice=f"Published {created.key!r} v{created.version} (now active).",
+    )
+
+
+# --- E-mail types (DVB-307) ---------------------------------------------------
+
+
+@router.post("/projects/{project_id}/email-types", summary="Declare or update an e-mail type")
+async def save_email_type(
+    request: Request,
+    admin_user: CurrentAdminUser,
+    project_id: uuid.UUID,
+    page: ProjectPageDep,
+    key: Annotated[str, Form()],
+    category: Annotated[str, Form()] = EmailCategory.TRANSACTIONAL.value,
+    mode: Annotated[str, Form()] = EmailTypeMode.TEMPLATE.value,
+    description: Annotated[str, Form()] = "",
+    locale: Annotated[str, Form()] = "",
+    sample_payload: Annotated[str, Form()] = "",
+) -> HTMLResponse:
+    try:
+        sample = json.loads(sample_payload) if sample_payload.strip() else {}
+        if not isinstance(sample, dict):
+            raise ValueError("sample_payload must be a JSON object")
+        payload = EmailTypeCreate(
+            key=key.strip(),
+            category=EmailCategory(category),
+            mode=EmailTypeMode(mode),
+            description=description.strip() or None,
+            locale=locale.strip() or None,
+            sample_payload=sample,
+        )
+        email_type, outcome = await page.email_type_service.upsert(project_id, payload)
+    except json.JSONDecodeError as exc:
+        return await page.render(
+            request, admin_user, project_id,
+            error=f"sample_payload is not valid JSON: {exc}", status_code=422,
+        )
+    except ValidationError as exc:
+        return await page.render(
+            request, admin_user, project_id,
+            error=_format_validation_error(exc), status_code=422,
+        )
+    except ValueError as exc:
+        return await page.render(request, admin_user, project_id, error=str(exc), status_code=422)
+    return await page.render(
+        request, admin_user, project_id, notice=f"E-mail type {email_type.key!r} {outcome}."
+    )
+
+
+@router.post(
+    "/projects/{project_id}/email-types/{email_type_id}/toggle",
+    summary="Activate or deactivate an e-mail type",
+)
+async def toggle_email_type(
+    request: Request,
+    admin_user: CurrentAdminUser,
+    project_id: uuid.UUID,
+    email_type_id: uuid.UUID,
+    page: ProjectPageDep,
+) -> HTMLResponse:
+    current = await page.email_type_service.get(project_id, email_type_id)
+    updated = await page.email_type_service.set_active(
+        project_id, email_type_id, not current.is_active
+    )
+    state = "activated" if updated.is_active else "deactivated"
+    return await page.render(
+        request, admin_user, project_id, notice=f"E-mail type {updated.key!r} {state}."
+    )
+
+
+@router.post(
+    "/projects/{project_id}/email-types/{email_type_id}/preview",
+    summary="Render a template e-mail type with its sample payload",
+)
+async def preview_email_type(
+    request: Request,
+    admin_user: CurrentAdminUser,
+    project_id: uuid.UUID,
+    email_type_id: uuid.UUID,
+    page: ProjectPageDep,
+) -> HTMLResponse:
+    email_type = await page.email_type_service.get(project_id, email_type_id)
+    if email_type.mode == EmailTypeMode.RAW.value:
+        return templates.TemplateResponse(
+            request, "partials/_preview.html",
+            {"error": "Raw types are sent as the client provides them; nothing to render."},
+        )
+    try:
+        template = await page.template_service.get_active(project_id, email_type.key)
+        subject, html = page.template_service.render(template, email_type.sample_payload)
+    except (NotFoundError, ValidationFailedError) as exc:
+        return templates.TemplateResponse(
+            request, "partials/_preview.html", {"error": exc.detail}
+        )
+    return templates.TemplateResponse(
+        request, "partials/_preview.html", {"subject": subject, "html": html, "error": None}
     )
 
 

@@ -52,6 +52,7 @@ class ProjectCreate(BaseModel):
     default_sender_name: str
     delivery_provider: DeliveryProvider = DeliveryProvider.BREVO
     delivery_config: DeliveryConfig = DeliveryConfig()
+    allow_undeclared_types: bool = False
 
     _validate_slug = field_validator("slug")(_validate_slug)
 
@@ -63,6 +64,7 @@ class ProjectUpdate(BaseModel):
     default_sender_name: str | None = None
     delivery_provider: DeliveryProvider | None = None
     delivery_config: DeliveryConfig | None = None
+    allow_undeclared_types: bool | None = None
     is_active: bool | None = None
 
 
@@ -81,6 +83,7 @@ class ProjectRead(BaseModel):
     # Secrets are never returned, only whether they are set.
     has_smtp_password: bool
     has_brevo_api_key: bool
+    allow_undeclared_types: bool
     is_active: bool
     created_at: datetime
 
