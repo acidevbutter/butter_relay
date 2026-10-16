@@ -15,7 +15,7 @@
         <label>Default sender name</label>
         <input type="text" name="default_sender_name" required value="{{ form.get('default_sender_name', '') }}">
         {% include "partials/_delivery_fields.html" %}
-        <label><input type="checkbox" name="external" value="true" {{ "checked" if form.get('external') }}> External project (API key expires after 30 days)</label>
+        <label><input type="checkbox" name="external" value="true" {{ "checked" if form.get('external') }}> External project (its keys default to send + read scopes)</label>
         <button type="submit">Create project</button>
     </form>
 </div>
