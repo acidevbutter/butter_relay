@@ -8,12 +8,15 @@ from sqlalchemy import (
     Boolean,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
+    LargeBinary,
     String,
     Text,
     UniqueConstraint,
     false,
     func,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -34,6 +37,15 @@ class Message(Base):
         # workers racing on the same (re)delivered task can never both create a row.
         UniqueConstraint(
             "project_id", "broker_message_id", name="uq_messages_project_broker_message_id"
+        ),
+        # Idempotency-Key of the HTTP send API, unique per client when given (DVB-309).
+        Index(
+            "uq_messages_project_idempotency_key",
+            "project_id",
+            "idempotency_key",
+            unique=True,
+            postgresql_where=text("idempotency_key IS NOT NULL"),
+            sqlite_where=text("idempotency_key IS NOT NULL"),
         ),
     )
 
@@ -63,6 +75,23 @@ class Message(Base):
     )
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
 
+    # --- HTTP send API (DVB-309 / S4); all null for messages from the Celery path ---
+    idempotency_key: Mapped[str | None] = mapped_column(String(100), default=None)
+    # sha256 of the request body, to tell a retry (same body) from a conflict (409).
+    request_hash: Mapped[str | None] = mapped_column(String(64), default=None)
+    email_type: Mapped[str | None] = mapped_column(String(100), default=None)
+    recipients: Mapped[dict[str, Any] | None] = mapped_column(JSON, default=None)
+    reply_to: Mapped[str | None] = mapped_column(String(320), default=None)
+    raw_subject: Mapped[str | None] = mapped_column(String(500), default=None)
+    raw_html: Mapped[str | None] = mapped_column(Text, default=None)
+    raw_text: Mapped[str | None] = mapped_column(Text, default=None)
+    headers: Mapped[dict[str, str] | None] = mapped_column(JSON, default=None)
+    source: Mapped[str | None] = mapped_column(String(200), default=None)
+    # "metadata" is reserved on declarative models; the column keeps the public name.
+    client_metadata: Mapped[dict[str, Any] | None] = mapped_column(
+        "metadata", JSON, default=None
+    )
+
 
 class MessageAttempt(Base):
     """One row per delivery attempt that reached an outcome (DVB-188): the message row
@@ -83,3 +112,19 @@ class MessageAttempt(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+
+
+class MessageAttachment(Base):
+    """Attachment bytes of an HTTP-sent message (DVB-309). Personal data: deleted as soon
+    as the message is sent, and by the retention purge otherwise."""
+
+    __tablename__ = "message_attachments"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    message_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("messages.id", ondelete="CASCADE"), index=True
+    )
+    filename: Mapped[str] = mapped_column(String(255))
+    content_type: Mapped[str] = mapped_column(String(100))
+    size: Mapped[int] = mapped_column(Integer)
+    data: Mapped[bytes] = mapped_column(LargeBinary)

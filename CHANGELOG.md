@@ -4,6 +4,29 @@ Registro retroativo baseado em todos os commits da branch `master`.
 
 ## Unreleased
 
+- S4, API HTTPS de envio (DVB-309):
+  - `POST /api/v1/messages/send` com `Authorization: Bearer` e escopo `send`. O
+    `project_id` vem sempre da chave (fecha o H-02 para quem usa HTTP); `from` não é
+    aceito (campos extras dão 422).
+  - Modo template (`type` + `payload`, validado contra o schema do template) e modo raw
+    (`subject` + `html` [+ `text`]); `to`/`cc`/`bcc`, `reply_to`, `headers` e anexos em
+    base64. Tipo não declarado: 422 `unknown_email_type` (salvo `allow_undeclared_types`).
+  - Limites: 50 destinatários, HTML 1 MB, anexos 2 MB, corpo 3 MB (413 antes de
+    interpretar o JSON).
+  - A `Message` é gravada antes de ir para a fila; resposta 202 `{message_id, status,
+    type}`. Se o enqueue falhar: 503 `enqueue_failed` com `Retry-After`, e repetir a
+    mesma `Idempotency-Key` reenfileira a mesma mensagem.
+  - `Idempotency-Key`: mesma chave e mesmo corpo devolvem a mesma mensagem (200); corpo
+    diferente dá 409. Índice único parcial `(project_id, idempotency_key)`.
+  - Migration `c7e3a9b5d1f4`: colunas em `messages` (destinatários, assunto/HTML/texto
+    raw, headers, origem, metadata, hash da requisição) e tabela `message_attachments`.
+  - Worker: nova task kwarg `message_id` (processa a mensagem gravada) sem quebrar o
+    `send_task` legado; `ALLOW_LEGACY_SEND_TASK=false` recusa o legado.
+  - `ADMIN_ALLOWED_HOSTS`: com a variável definida, o host público só responde
+    `/health` e a API de cliente; `/admin` e a API de serviço dão 404 fora dos hosts
+    de admin. Não há CORS habilitado.
+  - Retenção (LGPD): a limpeza de corpos agora também apaga HTML/texto raw e anexos.
+
 - S3, escopos, validade, rotação e rate limit (DVB-308):
   - `api_keys.scopes` (`send`/`read`/`manage`; migration `b5d1f7a9c3e4` dá os três às
     chaves existentes) e `require_scope` em todas as rotas `/api/v1/*`: leituras pedem
