@@ -46,8 +46,21 @@ class ProviderResult:
 
 
 class EmailSendError(Exception):
-    def __init__(self, detail: str):
+    """A provider failure. `permanent` means retrying cannot help (rejected request,
+    bad credentials, refused recipient, unknown channel): the worker fails the
+    message for good instead of burning the retry budget. Transient failures
+    (timeouts, 5xx, 429, connection errors) stay retryable."""
+
+    def __init__(self, detail: str, *, permanent: bool = False):
+        super().__init__(detail)
         self.detail = detail
+        self.permanent = permanent
+
+
+# Brevo statuses that no amount of retrying fixes: malformed request, bad/forbidden
+# API key, unknown resource, unprocessable content. Everything else (408, 429, 5xx)
+# is worth retrying.
+_BREVO_PERMANENT_STATUSES = frozenset({400, 401, 403, 404, 422})
 
 
 class EmailProvider(Protocol):
@@ -90,13 +103,13 @@ class BrevoEmailProvider:
             client = httpx.AsyncClient(timeout=10.0)
         try:
             response = await client.post(BREVO_SEND_URL, json=payload, headers=headers)
-        except Exception as exc:
+        except httpx.HTTPError as exc:
             logger.warning(
                 "brevo request failed: %s",
                 type(exc).__name__,
                 extra={"event": "email_provider_error", "provider": "brevo"},
             )
-            raise
+            raise EmailSendError(f"Brevo request failed: {type(exc).__name__}") from exc
         finally:
             if owns_client:
                 await client.aclose()
@@ -107,10 +120,23 @@ class BrevoEmailProvider:
                 response.status_code,
                 extra={"event": "email_provider_error", "provider": "brevo"},
             )
-            raise EmailSendError(f"Brevo send failed ({response.status_code}): {response.text}")
+            raise EmailSendError(
+                f"Brevo send failed ({response.status_code}): {response.text}",
+                permanent=response.status_code in _BREVO_PERMANENT_STATUSES,
+            )
 
         data = response.json()
         return ProviderResult(provider_message_id=data.get("messageId", ""))
+
+
+def _smtp_error_is_permanent(exc: Exception) -> bool:
+    """SMTP 5xx replies and refused senders/recipients are final; 4xx replies and
+    transport errors (connection refused, timeouts) are transient."""
+    if isinstance(exc, smtplib.SMTPRecipientsRefused):
+        return True
+    if isinstance(exc, smtplib.SMTPResponseException):
+        return exc.smtp_code >= 500
+    return False
 
 
 class SmtpEmailProvider:
@@ -147,7 +173,10 @@ class SmtpEmailProvider:
                 type(exc).__name__,
                 extra={"event": "email_provider_error", "provider": "smtp"},
             )
-            raise EmailSendError(f"SMTP send failed ({self._host}:{self._port}): {exc}") from exc
+            raise EmailSendError(
+                f"SMTP send failed ({self._host}:{self._port}): {exc}",
+                permanent=_smtp_error_is_permanent(exc),
+            ) from exc
         return ProviderResult(provider_message_id=str(uuid.uuid4()))
 
     def _send_sync(self, message: EmailMessage) -> None:
@@ -172,4 +201,4 @@ def get_email_provider_for_project(
             host=str(config.get("smtp_host") or settings.smtp_host),
             port=int(config.get("smtp_port") or settings.smtp_port),
         )
-    raise EmailSendError(f"Unknown delivery provider {provider!r}")
+    raise EmailSendError(f"Unknown delivery provider {provider!r}", permanent=True)

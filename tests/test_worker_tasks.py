@@ -335,19 +335,26 @@ async def test_retry_reuses_the_same_message_row_and_counts_attempts(
     assert messages[0].provider_message_id == "ok-3"
 
 
-async def test_get_by_broker_message_id_tolerates_legacy_duplicate_rows(
+async def test_duplicate_broker_message_id_in_a_project_is_rejected(
     db_session: AsyncSession,
 ) -> None:
+    """DVB-188: the task id is an idempotency key enforced by the database."""
+    from app.core.exceptions import ConflictError
     from app.messages.schemas import MessageCreate
 
     project_id = await _seed_project_and_template(db_session)
     repo = MessageRepository(db_session)
-    for _ in range(2):
+    await repo.create(
+        MessageCreate(project_id=project_id, to_email="a@b.co", broker_message_id="dup")
+    )
+
+    with pytest.raises(ConflictError):
         await repo.create(
             MessageCreate(project_id=project_id, to_email="a@b.co", broker_message_id="dup")
         )
 
-    assert await repo.get_by_broker_message_id("dup") is not None
+    assert (await repo.get_by_broker_message_id("dup", project_id)) is not None
+    assert len(await repo.list()) == 1  # the session is usable after the rolled-back insert
 
 
 def test_worker_logging_uses_the_shared_structured_setup(
@@ -365,3 +372,132 @@ def test_worker_logging_uses_the_shared_structured_setup(
     celery_module._configure_worker_logging()
 
     setup.assert_called_once_with(settings.log_level)
+
+
+# --- DVB-188: permanent errors, terminal failures, redelivery -------------------------
+
+
+async def test_permanent_provider_error_fails_terminally_without_retry(
+    db_session: AsyncSession,
+) -> None:
+    from app.core.email_provider import EmailSendError
+
+    project_id = await _seed_project_and_template(db_session)
+    provider = AsyncMock()
+    provider.send.side_effect = EmailSendError("Brevo send failed (401)", permanent=True)
+
+    # returns normally: no exception means Celery does not schedule a retry
+    await process_message(
+        "perm-1", str(project_id), "welcome_email", "t@example.com", {"name": "M"}, provider
+    )
+
+    message = (await MessageRepository(db_session).list())[0]
+    assert message.status == MessageStatus.FAILED
+    assert message.terminal_failure is True
+    assert provider.send.await_count == 1
+
+
+async def test_transient_provider_error_raises_and_stays_retryable(
+    db_session: AsyncSession,
+) -> None:
+    from app.core.email_provider import EmailSendError
+
+    project_id = await _seed_project_and_template(db_session)
+    provider = AsyncMock()
+    provider.send.side_effect = EmailSendError("Brevo send failed (503)")
+
+    with pytest.raises(EmailSendError):
+        await process_message(
+            "trans-1", str(project_id), "welcome_email", "t@example.com", {"name": "M"}, provider
+        )
+
+    message = (await MessageRepository(db_session).list())[0]
+    assert message.status == MessageStatus.FAILED
+    assert message.terminal_failure is False
+
+
+async def test_last_attempt_turns_a_transient_failure_terminal(
+    db_session: AsyncSession,
+) -> None:
+    from app.core.email_provider import EmailSendError
+
+    project_id = await _seed_project_and_template(db_session)
+    provider = AsyncMock()
+    provider.send.side_effect = EmailSendError("Brevo send failed (503)")
+
+    with pytest.raises(EmailSendError):
+        await process_message(
+            "final-1", str(project_id), "welcome_email", "t@example.com", {"name": "M"},
+            provider, final_attempt=True,
+        )
+
+    message = (await MessageRepository(db_session).list())[0]
+    assert message.terminal_failure is True
+
+
+async def test_redelivery_of_a_terminally_failed_message_is_not_sent_again(
+    db_session: AsyncSession,
+) -> None:
+    from app.core.email_provider import EmailSendError
+
+    project_id = await _seed_project_and_template(db_session)
+    provider = AsyncMock()
+    provider.send.side_effect = EmailSendError("rejected", permanent=True)
+    args = ("redeliver-1", str(project_id), "welcome_email", "t@example.com", {"name": "M"})
+    await process_message(*args, provider)
+    provider.send.reset_mock()
+
+    await process_message(*args, provider)  # broker redelivers the same task id
+
+    provider.send.assert_not_awaited()
+    assert len(await MessageRepository(db_session).list()) == 1
+
+
+async def test_redelivery_of_a_sent_message_does_not_duplicate_the_email(
+    db_session: AsyncSession,
+) -> None:
+    project_id = await _seed_project_and_template(db_session)
+    provider = AsyncMock()
+    provider.send.return_value = ProviderResult(provider_message_id="ok-1")
+    args = ("redeliver-2", str(project_id), "welcome_email", "t@example.com", {"name": "M"})
+
+    await process_message(*args, provider)
+    await process_message(*args, provider)  # crash before the ack -> broker redelivers
+
+    assert provider.send.await_count == 1
+    assert len(await MessageRepository(db_session).list()) == 1
+
+
+async def test_same_task_id_in_another_project_is_a_different_message(
+    db_session: AsyncSession,
+) -> None:
+    first = await _seed_project_and_template(db_session)
+    other = await ProjectRepository(db_session).create(
+        ProjectCreate(
+            name="Other",
+            slug="other",
+            default_sender_email="noreply@devbutter.com",
+            default_sender_name="Other",
+        )
+    )
+    from app.templates_.service import TemplateService
+
+    await TemplateService(TemplateRepository(db_session)).publish(
+        TemplateCreate(
+            project_id=other.id,
+            key="welcome_email",
+            subject_template="Hi",
+            html_template="<p>Hi</p>",
+        )
+    )
+    provider = AsyncMock()
+    provider.send.return_value = ProviderResult(provider_message_id="ok")
+
+    await process_message(
+        "shared-id", str(first), "welcome_email", "a@example.com", {"name": "A"}, provider
+    )
+    await process_message(
+        "shared-id", str(other.id), "welcome_email", "b@example.com", {}, provider
+    )
+
+    assert provider.send.await_count == 2

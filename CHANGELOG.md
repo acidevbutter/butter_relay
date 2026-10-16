@@ -4,6 +4,15 @@ Registro retroativo baseado em todos os commits da branch `master`.
 
 ## Unreleased
 
+- Idempotência e falha terminal de mensagens (DVB-457): `UNIQUE (project_id,
+  broker_message_id)` em `messages` (migration `c5a8d1f3e7b2`, que deduplica linhas
+  antigas antes de criar a constraint) e nova coluna `terminal_failure`. Erros
+  permanentes do provider (Brevo 400/401/403/404/422, SMTP 5xx, destinatário recusado,
+  canal desconhecido) e destinatário bloqueado pela política de não produção falham de
+  vez, sem gastar retries; a última tentativa também marca a falha como terminal. Uma
+  redelivery de mensagem com falha terminal é ignorada. Erros de transporte do Brevo
+  (`httpx.HTTPError`) viram `EmailSendError` retentável em vez de exceção crua.
+
 - Adicionado publicador idempotente dos sete templates transacionais `devbutter_*`
   por Project (`scripts/seed_devbutter_templates.py`). A operação cria somente
   templates sem versão ativa, usa `TemplateService` para validar Jinja e registra
