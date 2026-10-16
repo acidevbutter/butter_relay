@@ -95,6 +95,7 @@ async def process_message(
             logger.warning("ignoring redelivery of terminally failed message %s", existing.id)
             return
 
+        message: Message | None = existing
         try:
             project = await project_service.get(parsed_project_id)
             if not project.is_active:
@@ -102,18 +103,12 @@ async def process_message(
                 return
 
             template = await template_service.get_active(parsed_project_id, template_key)
-            blob_id = render_payload.get("blob_id")
-            if blob_id:
-                blob_meta = await blob.get(str(blob_id))
-                public_url = blob_meta.get("public_url")
-                if not isinstance(public_url, str) or not public_url:
-                    raise ValidationFailedError("NFS-e blob has no public_url")
-                render_payload["cta_link"] = public_url
 
             # A Celery retry reuses the task id: keep one row per logical message
             # (attempts counts the tries) instead of inserting a duplicate per
-            # attempt (acidevbutter/butter_relay#35).
-            message: Message = existing or await message_service.create(
+            # attempt (acidevbutter/butter_relay#35). The row is created before the
+            # optional Blob lookup so a Blob failure is recorded too (DVB-344).
+            message = existing or await message_service.create(
                 MessageCreate(
                     project_id=parsed_project_id,
                     template_id=template.id,
@@ -124,8 +119,17 @@ async def process_message(
                 )
             )
 
+            blob_id = render_payload.get("blob_id")
+            if blob_id:
+                blob_meta = await blob.get(str(blob_id))
+                public_url = blob_meta.get("public_url")
+                if not isinstance(public_url, str) or not public_url:
+                    raise ValidationFailedError("NFS-e blob has no public_url")
+                render_payload["cta_link"] = public_url
+
             subject, html = template_service.render(template, render_payload)
-            message = await message_service.mark_processing(message, subject)
+            # Store what was actually rendered (cta_link included) for the message log.
+            message = await message_service.mark_processing(message, subject, render_payload)
 
             if not settings.is_recipient_allowed(to_email):
                 detail = "recipient blocked by non-production delivery policy"
@@ -145,18 +149,34 @@ async def process_message(
             )
             await message_service.mark_sent(message, result.provider_message_id)
         except EmailSendError as exc:
-            await message_service.mark_failed(
-                message, exc.detail, terminal=exc.permanent or final_attempt
-            )
+            if message is not None:
+                await message_service.mark_failed(
+                    message, exc.detail, terminal=exc.permanent or final_attempt
+                )
             if exc.permanent:
                 # Retrying cannot help (rejected request, bad credentials, refused
                 # recipient): fail for good instead of spending the retry budget.
-                logger.error("permanent send failure for message %s: %s", message.id, exc.detail)
+                logger.error(
+                    "permanent send failure for task %s: %s", broker_message_id, exc.detail
+                )
                 return
             raise
         except ValidationFailedError as exc:
-            if "message" in locals():
+            if message is not None:
                 await message_service.mark_failed(message, exc.detail, terminal=final_attempt)
+            raise
+        except (NotFoundError, ConflictError):
+            # Retried by Celery (autoretry_for); no row to update or nothing to record yet.
+            raise
+        except Exception as exc:
+            # Anything unexpected (Blob/network errors, bugs) is not retried by Celery:
+            # record it as a terminal failure instead of leaving the row stuck in
+            # "processing" (DVB-344). The session may be unusable after a DB error.
+            if message is not None:
+                await session.rollback()
+                await message_service.mark_failed(
+                    message, f"unexpected error: {type(exc).__name__}", terminal=True
+                )
             raise
 
 
