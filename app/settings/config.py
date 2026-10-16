@@ -31,6 +31,8 @@ class Settings(BaseSettings):
     relay_queue_name: str = "relay-shared"
     # Largest JSON payload a task may carry; bigger ones are rejected, not rendered (DVB-188).
     relay_max_payload_bytes: int = 64 * 1024
+    # Requests per minute per API key (DVB-308); a project may override it. 0 disables.
+    relay_default_rate_per_minute: int = 120
     # Payloads (rendered personal data) of finished messages and the recipient of
     # rejected tasks are cleared after this many days (DVB-208 / LGPD).
     message_body_retention_days: int = 30

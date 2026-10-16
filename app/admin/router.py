@@ -17,6 +17,8 @@ from pydantic import EmailStr, TypeAdapter, ValidationError
 
 from app.admin.templating import templates
 from app.api_keys.dependencies import ApiKeyServiceDep
+from app.api_keys.schemas import ApiKeyCreate
+from app.api_keys.service import SUGGESTED_EXTERNAL_KEY_DAYS
 from app.auth.dependencies import CurrentAdminUser
 from app.auth.models import AdminUser
 from app.core.email_provider import (
@@ -225,6 +227,7 @@ class ProjectPage:
                 "form": form or {},
                 "providers": list(DeliveryProvider),
                 "default_smtp": f"{settings.smtp_host}:{settings.smtp_port}",
+                "suggested_external_days": SUGGESTED_EXTERNAL_KEY_DAYS,
             },
             status_code=status_code,
         )
@@ -368,9 +371,53 @@ async def create_api_key(
     project_id: uuid.UUID,
     label: Annotated[str, Form()],
     page: ProjectPageDep,
+    scopes: Annotated[list[str] | None, Form()] = None,
+    expires_in_days: Annotated[str, Form()] = "",
 ) -> HTMLResponse:
-    _, plaintext_key = await page.api_key_service.create(project_id, label)
+    try:
+        payload = ApiKeyCreate(
+            project_id=project_id,
+            label=label,
+            scopes=scopes or None,  # validated by the schema
+            expires_in_days=int(expires_in_days) if expires_in_days.strip() else None,
+        )
+    except (ValidationError, ValueError) as exc:
+        detail = _format_validation_error(exc) if isinstance(exc, ValidationError) else str(exc)
+        return await page.render(request, admin_user, project_id, error=detail, status_code=422)
+    _, plaintext_key = await page.api_key_service.create(
+        project_id,
+        payload.label,
+        scopes=list(payload.scopes) if payload.scopes else None,
+        expires_in_days=payload.expires_in_days,
+    )
     return await page.render(request, admin_user, project_id, new_key_plaintext=plaintext_key)
+
+
+@router.post("/projects/{project_id}/api-keys/{api_key_id}/rotate", summary="Rotate an API key")
+async def rotate_api_key(
+    request: Request,
+    admin_user: CurrentAdminUser,
+    project_id: uuid.UUID,
+    api_key_id: uuid.UUID,
+    page: ProjectPageDep,
+    grace_hours: Annotated[str, Form()] = "",
+) -> HTMLResponse:
+    try:
+        _, plaintext_key = await page.api_key_service.rotate(
+            api_key_id, project_id,
+            grace_hours=int(grace_hours) if grace_hours.strip() else None,
+        )
+    except ValueError:
+        return await page.render(
+            request, admin_user, project_id, error="grace_hours must be a number", status_code=422
+        )
+    except NotFoundError as exc:
+        return await page.render(request, admin_user, project_id, error=exc.detail, status_code=404)
+    return await page.render(
+        request, admin_user, project_id, new_key_plaintext=plaintext_key,
+        notice="Key rotated: the old key keeps working until revoked"
+        + (f" (expires in {grace_hours}h)." if grace_hours.strip() else "."),
+    )
 
 
 @router.post("/projects/{project_id}/api-keys/{api_key_id}/revoke", summary="Revoke an API key")

@@ -4,7 +4,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, File, Form, Response, UploadFile, status
 
-from app.api_keys.dependencies import CurrentApiKey
+from app.api_keys.dependencies import ManageApiKey, ReadApiKey
 from app.api_keys.models import ApiKey
 from app.core.exceptions import ForbiddenError, ValidationFailedError
 from app.templates_.dependencies import TemplateServiceDep
@@ -27,7 +27,7 @@ def _require_same_project(current_api_key: ApiKey, project_id: uuid.UUID) -> Non
 
 @router.get("/", response_model=list[TemplateRead], summary="List templates for a project")
 async def list_templates(
-    project_id: uuid.UUID, current_api_key: CurrentApiKey, service: TemplateServiceDep
+    project_id: uuid.UUID, current_api_key: ReadApiKey, service: TemplateServiceDep
 ) -> list[Template]:
     _require_same_project(current_api_key, project_id)
     return await service.list_for_project(project_id)
@@ -40,7 +40,7 @@ async def list_templates(
     summary="Publish a new template version",
 )
 async def publish_template(
-    payload: TemplateCreate, current_api_key: CurrentApiKey, service: TemplateServiceDep
+    payload: TemplateCreate, current_api_key: ManageApiKey, service: TemplateServiceDep
 ) -> Template:
     _require_same_project(current_api_key, payload.project_id)
     return await service.publish(payload)
@@ -48,7 +48,7 @@ async def publish_template(
 
 @router.get("/{template_id}", response_model=TemplateRead, summary="Get a template")
 async def get_template(
-    template_id: uuid.UUID, current_api_key: CurrentApiKey, service: TemplateServiceDep
+    template_id: uuid.UUID, current_api_key: ReadApiKey, service: TemplateServiceDep
 ) -> Template:
     template = await service.get(template_id)
     _require_same_project(current_api_key, template.project_id)
@@ -63,7 +63,7 @@ async def get_template(
 async def preview_template(
     template_id: uuid.UUID,
     payload: TemplatePreviewRequest,
-    current_api_key: CurrentApiKey,
+    current_api_key: ReadApiKey,
     service: TemplateServiceDep,
 ) -> TemplatePreviewResponse:
     template = await service.get(template_id)
@@ -78,7 +78,7 @@ async def preview_template(
     summary="Make this version the active one (rollback)",
 )
 async def activate_template(
-    template_id: uuid.UUID, current_api_key: CurrentApiKey, service: TemplateServiceDep
+    template_id: uuid.UUID, current_api_key: ManageApiKey, service: TemplateServiceDep
 ) -> Template:
     template = await service.get(template_id)
     _require_same_project(current_api_key, template.project_id)
@@ -97,7 +97,7 @@ MAX_UPLOAD_BYTES = 512 * 1024
 )
 async def upload_template(
     response: Response,
-    current_api_key: CurrentApiKey,
+    current_api_key: ManageApiKey,
     service: TemplateServiceDep,
     file: Annotated[UploadFile, File(description=".html file, up to 512 KB")],
     key: Annotated[str, Form()],

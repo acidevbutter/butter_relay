@@ -2,7 +2,7 @@ import uuid
 
 from fastapi import APIRouter, Query
 
-from app.api_keys.dependencies import CurrentApiKey
+from app.api_keys.dependencies import ReadApiKey
 from app.core.exceptions import ForbiddenError
 from app.messages.dependencies import MessageServiceDep
 from app.messages.models import Message, MessageStatus
@@ -13,7 +13,7 @@ router = APIRouter(prefix="/api/v1/messages", tags=["messages"])
 
 @router.get("/", response_model=list[MessagePublicRead], summary="List messages (the email log)")
 async def list_messages(
-    current_api_key: CurrentApiKey,
+    current_api_key: ReadApiKey,
     service: MessageServiceDep,
     status_filter: MessageStatus | None = None,
     limit: int = Query(100, ge=1, le=200),
@@ -26,7 +26,7 @@ async def list_messages(
 
 @router.get("/{message_id}", response_model=MessagePublicRead, summary="Get a message")
 async def get_message(
-    message_id: uuid.UUID, current_api_key: CurrentApiKey, service: MessageServiceDep
+    message_id: uuid.UUID, current_api_key: ReadApiKey, service: MessageServiceDep
 ) -> Message:
     message = await service.get(message_id)
     if message.project_id != current_api_key.project_id:

@@ -65,6 +65,7 @@ class ProjectUpdate(BaseModel):
     delivery_provider: DeliveryProvider | None = None
     delivery_config: DeliveryConfig | None = None
     allow_undeclared_types: bool | None = None
+    rate_per_minute: int | None = Field(default=None, ge=1, le=100_000)
     is_active: bool | None = None
 
 
@@ -84,6 +85,7 @@ class ProjectRead(BaseModel):
     has_smtp_password: bool
     has_brevo_api_key: bool
     allow_undeclared_types: bool
+    rate_per_minute: int | None
     is_active: bool
     created_at: datetime
 

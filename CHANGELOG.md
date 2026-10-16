@@ -4,6 +4,20 @@ Registro retroativo baseado em todos os commits da branch `master`.
 
 ## Unreleased
 
+- S3, escopos, validade, rotação e rate limit (DVB-308):
+  - `api_keys.scopes` (`send`/`read`/`manage`; migration `b5d1f7a9c3e4` dá os três às
+    chaves existentes) e `require_scope` em todas as rotas `/api/v1/*`: leituras pedem
+    `read`; chaves, templates (inclusive upload) e canal de entrega pedem `manage`.
+    Sem o escopo, 403.
+  - Chaves de projetos externos nascem `send+read` e sem validade; `expires_in_days` é
+    configurável (o "30 dias fixo" virou só sugestão no admin).
+  - Rotação sem downtime: `POST /api/v1/api-keys/{id}/rotate` (e botão no admin) cria
+    chave nova com o mesmo label e escopos; a antiga vale até ser revogada ou até
+    `grace_hours`.
+  - Rate limit por chave no Redis (`RELAY_DEFAULT_RATE_PER_MINUTE=120`, override em
+    `projects.rate_per_minute`): 429 com `Retry-After` e `code: rate_limited`. Se o
+    Redis cair, o limite é liberado em vez de bloquear.
+
 - S2, catálogo de tipos e upload (DVB-307):
   - Domínio `email_types` (migration `a3c9e5f7b1d2`) com chave por projeto, categoria
     (`transactional`/`marketing`/`system`), modo (`template`/`raw`/`both`), locale e

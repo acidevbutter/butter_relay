@@ -4,6 +4,8 @@ from typing import Any
 from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse, RedirectResponse, Response
 
+from app.core.rate_limit import RateLimitExceeded
+
 Handler = Callable[[Request, Any], Awaitable[Response]]
 _registry: dict[type[Exception], Handler] = {}
 
@@ -96,3 +98,12 @@ async def handle_validation_failed(request: Request, exc: ValidationFailedError)
 @exception_handler(SessionRequiredError)
 async def handle_session_required(request: Request, exc: SessionRequiredError) -> RedirectResponse:
     return RedirectResponse(url=exc.redirect_to, status_code=status.HTTP_303_SEE_OTHER)
+
+
+@exception_handler(RateLimitExceeded)
+async def handle_rate_limited(request: Request, exc: RateLimitExceeded) -> JSONResponse:
+    return JSONResponse(
+        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+        content={"detail": exc.detail, "code": "rate_limited"},
+        headers={"Retry-After": str(max(exc.retry_after, 1))},
+    )
