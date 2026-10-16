@@ -4,6 +4,16 @@ Registro retroativo baseado em todos os commits da branch `master`.
 
 ## Unreleased
 
+- Proteção de dados (DVB-208, M-05):
+  - `GET /api/v1/messages*` não devolve mais o `payload`, mascara o destinatário
+    (`a***@dominio`) e redige o `last_error`.
+  - Erro do Brevo guarda só o `code` e a mensagem redigida e truncada (300 caracteres),
+    nunca o corpo inteiro; erro do SMTP também é redigido.
+  - O log de destinatário bloqueado mascara o endereço.
+  - Retenção: `MESSAGE_BODY_RETENTION_DAYS` (30). `python -m scripts.purge_message_bodies`
+    (ou a task `butter_relay.purge_message_bodies` no `celery beat`) limpa o payload das
+    mensagens finalizadas e o destinatário das rejeitadas.
+
 - Rastreabilidade e limites (DVB-188):
   - Histórico de tentativas em `message_attempts` (migration `e7c3a5b8d2f6`), mostrado no
     detalhe da mensagem no admin.

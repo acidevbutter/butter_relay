@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.rejected_messages.models import RejectedMessage
@@ -37,3 +37,14 @@ class RejectedMessageRepository:
             .where(RejectedMessage.received_at >= since)
         )
         return int(result.scalar_one())
+
+    async def purge_recipients(self, before: datetime) -> int:
+        result = await self.session.execute(
+            update(RejectedMessage)
+            .where(RejectedMessage.received_at < before, RejectedMessage.to_email.is_not(None))
+            .values(to_email=None)
+            .execution_options(synchronize_session=False)
+        )
+        await self.session.commit()
+        # UPDATE returns a CursorResult; Result's type hints don't expose rowcount.
+        return int(getattr(result, "rowcount", 0) or 0)

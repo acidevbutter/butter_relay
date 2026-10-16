@@ -23,3 +23,8 @@ class RejectedMessageService:
 
     async def count_recent(self, window: timedelta = timedelta(hours=24)) -> int:
         return await self.repository.count_since(datetime.now(UTC) - window)
+
+    async def purge_recipients(self, retention_days: int) -> int:
+        return await self.repository.purge_recipients(
+            datetime.now(UTC) - timedelta(days=retention_days)
+        )

@@ -6,12 +6,12 @@ from app.api_keys.dependencies import CurrentApiKey
 from app.core.exceptions import ForbiddenError
 from app.messages.dependencies import MessageServiceDep
 from app.messages.models import Message, MessageStatus
-from app.messages.schemas import MessageRead
+from app.messages.schemas import MessagePublicRead
 
 router = APIRouter(prefix="/api/v1/messages", tags=["messages"])
 
 
-@router.get("/", response_model=list[MessageRead], summary="List messages (the email log)")
+@router.get("/", response_model=list[MessagePublicRead], summary="List messages (the email log)")
 async def list_messages(
     current_api_key: CurrentApiKey,
     service: MessageServiceDep,
@@ -24,7 +24,7 @@ async def list_messages(
     return await service.list(current_api_key.project_id, status_filter, limit)
 
 
-@router.get("/{message_id}", response_model=MessageRead, summary="Get a message")
+@router.get("/{message_id}", response_model=MessagePublicRead, summary="Get a message")
 async def get_message(
     message_id: uuid.UUID, current_api_key: CurrentApiKey, service: MessageServiceDep
 ) -> Message:
