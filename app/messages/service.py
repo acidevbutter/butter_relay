@@ -65,3 +65,8 @@ class MessageService:
                 now - timedelta(minutes=15)
             ),
         }
+
+    async def purge_bodies(self, retention_days: int) -> int:
+        return await self.repository.purge_bodies(
+            datetime.now(UTC) - timedelta(days=retention_days)
+        )

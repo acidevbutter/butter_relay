@@ -24,6 +24,7 @@ from app.core.email_provider import (
     get_email_provider_for_project,
 )
 from app.core.exceptions import ConflictError, NotFoundError, ValidationFailedError
+from app.core.redaction import mask_email
 from app.db.session import engine, session_factory
 from app.messages.models import Message, MessageStatus
 from app.messages.repository import MessageRepository
@@ -154,7 +155,7 @@ async def process_message(
 
             if not settings.is_recipient_allowed(to_email):
                 detail = "recipient blocked by non-production delivery policy"
-                logger.warning("%s: %s", detail, to_email)
+                logger.warning("%s: %s", detail, mask_email(to_email))
                 await message_service.mark_failed(message, detail, terminal=True)
                 return
 

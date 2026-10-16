@@ -29,7 +29,7 @@ celery_app = Celery(
     # worker`), not by anything that merely imports this module for its
     # Celery instance. app.worker.queues registers the worker_ready handler
     # that seeds per-project queue consumers on boot (see that module).
-    include=["app.worker.tasks", "app.worker.queues"],
+    include=["app.worker.tasks", "app.worker.queues", "app.worker.retention"],
 )
 celery_app.conf.update(
     # Fallback/default queue for producers that don't pass an explicit
@@ -53,6 +53,14 @@ celery_app.conf.update(
     task_time_limit=120,
     result_expires=3600,
     broker_connection_retry_on_startup=True,
+    # Only runs where a `celery beat` process is started; otherwise schedule
+    # `python -m scripts.purge_message_bodies` daily (DVB-208).
+    beat_schedule={
+        "purge-message-bodies-daily": {
+            "task": "butter_relay.purge_message_bodies",
+            "schedule": 24 * 60 * 60,
+        }
+    },
 )
 
 

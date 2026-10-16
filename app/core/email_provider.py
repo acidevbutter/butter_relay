@@ -28,6 +28,7 @@ from typing import Any, Protocol
 
 import httpx
 
+from app.core.redaction import redact
 from app.settings.config import Settings
 
 logger = logging.getLogger(__name__)
@@ -121,12 +122,26 @@ class BrevoEmailProvider:
                 extra={"event": "email_provider_error", "provider": "brevo"},
             )
             raise EmailSendError(
-                f"Brevo send failed ({response.status_code}): {response.text}",
+                f"Brevo send failed ({response.status_code}): {_brevo_error_summary(response)}",
                 permanent=response.status_code in _BREVO_PERMANENT_STATUSES,
             )
 
         data = response.json()
         return ProviderResult(provider_message_id=data.get("messageId", ""))
+
+
+def _brevo_error_summary(response: httpx.Response) -> str:
+    """Brevo answers {"code": ..., "message": ...}; keep the code and a redacted,
+    truncated message instead of persisting the whole body (DVB-208)."""
+    try:
+        body = response.json()
+    except ValueError:
+        return redact(response.text) or ""
+    if not isinstance(body, dict):
+        return redact(str(body)) or ""
+    code = body.get("code")
+    message = redact(str(body.get("message") or "")) or ""
+    return f"{code}: {message}" if code else message
 
 
 def _smtp_error_is_permanent(exc: Exception) -> bool:
@@ -174,7 +189,7 @@ class SmtpEmailProvider:
                 extra={"event": "email_provider_error", "provider": "smtp"},
             )
             raise EmailSendError(
-                f"SMTP send failed ({self._host}:{self._port}): {exc}",
+                f"SMTP send failed ({self._host}:{self._port}): {redact(str(exc))}",
                 permanent=_smtp_error_is_permanent(exc),
             ) from exc
         return ProviderResult(provider_message_id=str(uuid.uuid4()))
