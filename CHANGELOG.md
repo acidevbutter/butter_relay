@@ -4,6 +4,10 @@ Registro retroativo baseado em todos os commits da branch `master`.
 
 ## Unreleased
 
+- Corrigido (#63): o `BlobClient` abre um `httpx.AsyncClient` por chamada. O cliente
+  global ficava preso ao event loop da primeira task e as seguintes falhavam com
+  "Event loop is closed".
+
 - Falhas sempre registradas (DVB-344): a `Message` passa a ser criada antes da consulta
   ao Blob (falha do Blob aparece no log e o retry reaproveita a linha), o payload
   renderizado (com `cta_link`) é gravado, e qualquer exceção inesperada marca a
