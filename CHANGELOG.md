@@ -4,6 +4,15 @@ Registro retroativo baseado em todos os commits da branch `master`.
 
 ## Unreleased
 
+- Validação de configuração (DVB-206, M-03):
+  - `DEBUG=true` fora de development é recusado no boot (desligaria o cookie de sessão
+    seguro).
+  - `BREVO_API_KEY` deixa de ser obrigatória: no startup a API loga `brevo_key_missing`
+    listando os projetos Brevo ativos sem chave própria, e o envio falha de forma
+    permanente com uma mensagem clara.
+  - `docker-compose.hostinger.yml` passa `RELAY_SECRETS_KEYS` (e `SESSION_SECRET` no
+    worker) só a partir do ambiente, sem default.
+
 - S1, provider completo (DVB-306):
   - `EmailProvider.send(OutboundEmail)` com to/cc/bcc, reply-to, HTML + texto, headers e
     anexos, no Brevo e no SMTP. O SMTP monta multipart/alternative com Message-ID próprio.
