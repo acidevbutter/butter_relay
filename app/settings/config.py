@@ -86,8 +86,13 @@ class Settings(BaseSettings):
             raise ValueError(
                 "DATABASE_PASSWORD must not be left at its development default outside development"
             )
-        if not self.brevo_api_key:
-            raise ValueError("BREVO_API_KEY must be set outside development")
+        # BREVO_API_KEY is no longer mandatory here: a project may carry its own Brevo
+        # key (DVB-306). Projects that rely on the shared key are checked at startup
+        # (app.main) and fail permanently at send time when it is missing (DVB-206).
+        if self.debug:
+            raise ValueError(
+                "DEBUG must be false outside development (it disables secure session cookies)"
+            )
         if not self.relay_secrets_keys.strip():
             raise ValueError("RELAY_SECRETS_KEYS must be set outside development")
         return self

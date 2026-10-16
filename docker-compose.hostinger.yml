@@ -1,4 +1,6 @@
 # Coolify staging/prod: API + worker on the shared coolify network.
+# Secrets come only from the deployment (Coolify env); there are no production
+# defaults here -- the app refuses to boot outside development without them (DVB-206).
 # Same image, same database `relay`. Redis lives in devbutter-staging-deps
 # (or wherever REDIS_URL points -- a Coolify-managed Redis resource).
 
@@ -23,6 +25,7 @@ services:
       BUTTER_BLOB_NAMESPACE: ${BUTTER_BLOB_NAMESPACE:-nfse}
       BUTTER_BLOB_TIMEOUT_SECONDS: ${BUTTER_BLOB_TIMEOUT_SECONDS:-15}
       BREVO_API_KEY: ${BREVO_API_KEY:-}
+      RELAY_SECRETS_KEYS: ${RELAY_SECRETS_KEYS}
     networks:
       - coolify
     healthcheck:
@@ -60,6 +63,9 @@ services:
       BUTTER_BLOB_NAMESPACE: ${BUTTER_BLOB_NAMESPACE:-nfse}
       BUTTER_BLOB_TIMEOUT_SECONDS: ${BUTTER_BLOB_TIMEOUT_SECONDS:-15}
       BREVO_API_KEY: ${BREVO_API_KEY:-}
+      # Same key as relay-api: the worker decrypts project secrets.
+      RELAY_SECRETS_KEYS: ${RELAY_SECRETS_KEYS}
+      SESSION_SECRET: ${SESSION_SECRET}
     networks:
       - coolify
     depends_on:
