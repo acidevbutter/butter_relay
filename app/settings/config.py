@@ -36,6 +36,9 @@ class Settings(BaseSettings):
     message_body_retention_days: int = 30
 
     brevo_api_key: str = ""
+    # Fernet keys (comma-separated, newest first) that encrypt per-project delivery
+    # secrets at rest (DVB-306). Mandatory outside development.
+    relay_secrets_keys: str = ""
     allowed_recipient_domains: str = ""
 
     # Only used when environment == "development" (see get_email_provider) --
@@ -85,6 +88,8 @@ class Settings(BaseSettings):
             )
         if not self.brevo_api_key:
             raise ValueError("BREVO_API_KEY must be set outside development")
+        if not self.relay_secrets_keys.strip():
+            raise ValueError("RELAY_SECRETS_KEYS must be set outside development")
         return self
 
     def is_recipient_allowed(self, email: str) -> bool:

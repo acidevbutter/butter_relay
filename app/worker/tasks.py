@@ -18,11 +18,7 @@ from typing import Any
 
 from app.core.blob_client import BlobClient, get_blob_client
 from app.core.decorators import log_call
-from app.core.email_provider import (
-    EmailProvider,
-    EmailSendError,
-    get_email_provider_for_project,
-)
+from app.core.email_provider import EmailProvider, EmailSendError, OutboundEmail
 from app.core.exceptions import ConflictError, NotFoundError, ValidationFailedError
 from app.core.redaction import mask_email
 from app.db.session import engine, session_factory
@@ -159,15 +155,15 @@ async def process_message(
                 await message_service.mark_failed(message, detail, terminal=True)
                 return
 
-            provider = email_provider or get_email_provider_for_project(
-                project.delivery_provider, project.delivery_config, settings
-            )
+            provider = email_provider or project_service.provider_for(project)
             result = await provider.send(
-                to=to_email,
-                subject=subject,
-                html=html,
-                from_email=project.default_sender_email,
-                from_name=project.default_sender_name,
+                OutboundEmail(
+                    to=[to_email],
+                    subject=subject,
+                    html=html,
+                    from_email=project.default_sender_email,
+                    from_name=project.default_sender_name,
+                )
             )
             await message_service.mark_sent(message, result.provider_message_id)
         except EmailSendError as exc:

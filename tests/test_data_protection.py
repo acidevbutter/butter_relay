@@ -11,7 +11,7 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import app.worker.tasks as tasks_module
-from app.core.email_provider import BrevoEmailProvider, EmailSendError
+from app.core.email_provider import BrevoEmailProvider, EmailSendError, OutboundEmail
 from app.core.redaction import mask_email, redact
 from app.messages.models import Message, MessageStatus
 from app.rejected_messages.models import RejectedMessage
@@ -46,8 +46,13 @@ async def test_brevo_error_keeps_code_and_redacts_body() -> None:
         provider = BrevoEmailProvider(api_key="test", client=client)
         with pytest.raises(EmailSendError) as info:
             await provider.send(
-                to="ana@example.com", subject="s", html="<p/>",
-                from_email="noreply@devbutter.com", from_name="DevButter",
+                OutboundEmail(
+                    to=["ana@example.com"],
+                    subject="s",
+                    html="<p/>",
+                    from_email="noreply@devbutter.com",
+                    from_name="DevButter",
+                )
             )
 
     detail = info.value.detail
@@ -137,16 +142,37 @@ async def test_retention_purges_old_payloads_and_rejected_recipients(
     project_id, _ = await create_project_and_api_key(db_session)
     old = datetime.now(UTC) - timedelta(days=31)
     rows = {
-        "old_sent": Message(project_id=uuid.UUID(project_id), to_email="a@x.com",
-                            payload={"k": 1}, status=MessageStatus.SENT, received_at=old),
-        "old_pending": Message(project_id=uuid.UUID(project_id), to_email="b@x.com",
-                               payload={"k": 1}, status=MessageStatus.PENDING, received_at=old),
-        "recent_sent": Message(project_id=uuid.UUID(project_id), to_email="c@x.com",
-                               payload={"k": 1}, status=MessageStatus.SENT),
+        "old_sent": Message(
+            project_id=uuid.UUID(project_id),
+            to_email="a@x.com",
+            payload={"k": 1},
+            status=MessageStatus.SENT,
+            received_at=old,
+        ),
+        "old_pending": Message(
+            project_id=uuid.UUID(project_id),
+            to_email="b@x.com",
+            payload={"k": 1},
+            status=MessageStatus.PENDING,
+            received_at=old,
+        ),
+        "recent_sent": Message(
+            project_id=uuid.UUID(project_id),
+            to_email="c@x.com",
+            payload={"k": 1},
+            status=MessageStatus.SENT,
+        ),
     }
     db_session.add_all(rows.values())
-    db_session.add(RejectedMessage(broker_message_id="r-old", reason="bad",
-                                   to_email="d@x.com", payload_keys=[], received_at=old))
+    db_session.add(
+        RejectedMessage(
+            broker_message_id="r-old",
+            reason="bad",
+            to_email="d@x.com",
+            payload_keys=[],
+            received_at=old,
+        )
+    )
     await db_session.commit()
 
     result = await purge_expired_bodies(30)

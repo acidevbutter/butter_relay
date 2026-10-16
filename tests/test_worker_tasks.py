@@ -189,7 +189,7 @@ async def test_nota_fiscal_resolves_blob_public_url_as_cta(
         fake_provider,
         blob_client=cast(BlobClient, fake_blob),
     )
-    html = fake_provider.send.await_args.kwargs["html"]
+    html = fake_provider.send.await_args.args[0].html
     assert "https://blob.test/v1/public/nfse/n.pdf" in html
     assert fake_blob.ids == ["11111111-1111-1111-1111-111111111111"]
 

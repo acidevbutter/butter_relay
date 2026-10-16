@@ -48,5 +48,6 @@ def test_non_dev_valid_config_passes() -> None:
         session_secret="real-secret",
         database_password="real-password",
         brevo_api_key="key",
+        relay_secrets_keys="k" * 43 + "=",
     )
     assert settings.session_secret == "real-secret"

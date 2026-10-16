@@ -22,14 +22,21 @@ from app.auth.models import AdminUser
 from app.core.email_provider import (
     DeliveryProvider,
     EmailSendError,
-    get_email_provider_for_project,
+    OutboundEmail,
+    SmtpSecurity,
 )
 from app.core.exceptions import ConflictError, NotFoundError, ValidationFailedError
 from app.core.queue_stats import queue_backlog
+from app.core.secrets import SecretsKeyError
 from app.messages.dependencies import MessageServiceDep
 from app.messages.models import MessageStatus
 from app.projects.dependencies import ProjectServiceDep
-from app.projects.schemas import DeliveryConfig, ProjectCreate, ProjectUpdate
+from app.projects.schemas import (
+    DeliveryConfig,
+    ProjectCreate,
+    ProjectSecretsUpdate,
+    ProjectUpdate,
+)
 from app.rejected_messages.dependencies import RejectedMessageServiceDep
 from app.settings.config import settings
 from app.templates_.dependencies import TemplateServiceDep
@@ -47,11 +54,15 @@ def _format_validation_error(exc: ValidationError) -> str:
     )
 
 
-def _delivery_config(smtp_host: str, smtp_port: str) -> DeliveryConfig:
+def _delivery_config(
+    smtp_host: str, smtp_port: str, smtp_security: str = "", smtp_username: str = ""
+) -> DeliveryConfig:
     """Blank form fields mean "use the deployment default" (SMTP_HOST / SMTP_PORT)."""
     return DeliveryConfig(
         smtp_host=smtp_host.strip() or None,
         smtp_port=int(smtp_port) if smtp_port.strip() else None,
+        smtp_security=SmtpSecurity(smtp_security) if smtp_security.strip() else None,
+        smtp_username=smtp_username.strip() or None,
     )
 
 
@@ -129,6 +140,8 @@ async def create_project(
     delivery_provider: Annotated[str, Form()] = DeliveryProvider.BREVO.value,
     smtp_host: Annotated[str, Form()] = "",
     smtp_port: Annotated[str, Form()] = "",
+    smtp_security: Annotated[str, Form()] = "",
+    smtp_username: Annotated[str, Form()] = "",
     external: Annotated[bool, Form()] = False,
 ) -> HTMLResponse:
     form = {
@@ -139,6 +152,8 @@ async def create_project(
         "delivery_provider": delivery_provider,
         "smtp_host": smtp_host,
         "smtp_port": smtp_port,
+        "smtp_security": smtp_security,
+        "smtp_username": smtp_username,
         "external": external,
     }
     try:
@@ -149,7 +164,7 @@ async def create_project(
             default_sender_email=default_sender_email,
             default_sender_name=default_sender_name,
             delivery_provider=DeliveryProvider(delivery_provider),
-            delivery_config=_delivery_config(smtp_host, smtp_port),
+            delivery_config=_delivery_config(smtp_host, smtp_port, smtp_security, smtp_username),
         )
         await service.create(payload)
     except ValidationError as exc:
@@ -231,6 +246,8 @@ async def update_project_settings(
     delivery_provider: Annotated[str, Form()],
     smtp_host: Annotated[str, Form()] = "",
     smtp_port: Annotated[str, Form()] = "",
+    smtp_security: Annotated[str, Form()] = "",
+    smtp_username: Annotated[str, Form()] = "",
     external: Annotated[bool, Form()] = False,
     is_active: Annotated[bool, Form()] = False,
 ) -> HTMLResponse:
@@ -240,7 +257,7 @@ async def update_project_settings(
             default_sender_email=default_sender_email,
             default_sender_name=default_sender_name,
             delivery_provider=DeliveryProvider(delivery_provider),
-            delivery_config=_delivery_config(smtp_host, smtp_port),
+            delivery_config=_delivery_config(smtp_host, smtp_port, smtp_security, smtp_username),
             external=external,
             is_active=is_active,
         )
@@ -255,6 +272,34 @@ async def update_project_settings(
     except ConflictError as exc:
         return await page.render(request, admin_user, project_id, error=exc.detail, status_code=409)
     return await page.render(request, admin_user, project_id, notice="Settings saved.")
+
+
+@router.post("/projects/{project_id}/secrets", summary="Set write-only delivery secrets")
+async def update_project_secrets(
+    request: Request,
+    admin_user: CurrentAdminUser,
+    project_id: uuid.UUID,
+    page: ProjectPageDep,
+    smtp_password: Annotated[str, Form()] = "",
+    brevo_api_key: Annotated[str, Form()] = "",
+    clear: Annotated[list[str] | None, Form()] = None,
+) -> HTMLResponse:
+    try:
+        payload = ProjectSecretsUpdate(
+            smtp_password=smtp_password or None,
+            brevo_api_key=brevo_api_key or None,
+            clear=clear or [],
+        )
+        await page.project_service.update_secrets(project_id, payload)
+    except ValidationError as exc:
+        return await page.render(
+            request, admin_user, project_id,
+            error=_format_validation_error(exc), status_code=422,
+        )
+    except (ValidationFailedError, SecretsKeyError) as exc:
+        detail = exc.detail if isinstance(exc, ValidationFailedError) else str(exc)
+        return await page.render(request, admin_user, project_id, error=detail, status_code=422)
+    return await page.render(request, admin_user, project_id, notice="Secrets saved.")
 
 
 @router.post("/projects/{project_id}/test-send", summary="Send a test e-mail through the project")
@@ -280,23 +325,24 @@ async def send_test_email(
             error="Recipient blocked by the non-production delivery policy.", status_code=422,
         )
     try:
-        provider = get_email_provider_for_project(
-            project.delivery_provider, project.delivery_config, settings
-        )
+        provider = page.project_service.provider_for(project)
         result = await provider.send(
-            to=recipient,
-            subject=f"Butter Relay test - {project.name}",
-            html=(
-                f"<p>This is a test e-mail from <strong>{project.name}</strong> sent through "
-                f"the <code>{project.delivery_provider}</code> delivery channel.</p>"
-            ),
-            from_email=project.default_sender_email,
-            from_name=project.default_sender_name,
+            OutboundEmail(
+                to=[recipient],
+                subject=f"Butter Relay test - {project.name}",
+                html=(
+                    f"<p>This is a test e-mail from <strong>{project.name}</strong> sent "
+                    f"through the <code>{project.delivery_provider}</code> delivery channel.</p>"
+                ),
+                from_email=project.default_sender_email,
+                from_name=project.default_sender_name,
+            )
         )
-    except EmailSendError as exc:
+    except (EmailSendError, SecretsKeyError) as exc:
+        detail = exc.detail if isinstance(exc, EmailSendError) else str(exc)
         return await page.render(
             request, admin_user, project_id,
-            error=f"Test send failed: {exc.detail}", status_code=502,
+            error=f"Test send failed: {detail}", status_code=502,
         )
     return await page.render(
         request, admin_user, project_id,
@@ -521,15 +567,15 @@ async def resend_message(
         message = await message_service.mark_processing(message, subject)
         if not settings.is_recipient_allowed(message.to_email):
             raise EmailSendError("recipient blocked by non-production delivery policy")
-        provider = get_email_provider_for_project(
-            project.delivery_provider, project.delivery_config, settings
-        )
+        provider = project_service.provider_for(project)
         result = await provider.send(
-            to=message.to_email,
-            subject=subject,
-            html=html,
-            from_email=project.default_sender_email,
-            from_name=project.default_sender_name,
+            OutboundEmail(
+                to=[message.to_email],
+                subject=subject,
+                html=html,
+                from_email=project.default_sender_email,
+                from_name=project.default_sender_name,
+            )
         )
     except (EmailSendError, ValidationFailedError) as exc:
         await message_service.mark_failed(message, exc.detail)
