@@ -13,7 +13,11 @@ __pycache__/
 .ruff_cache/
 tests/
 docs/
-scripts/
+# Only the seed scripts (and their templates) ship in the image.
+scripts/*
+!scripts/__init__.py
+!scripts/seed_*.py
+!scripts/templates/
 README.md
 CHANGELOG.md
 RELEASE_NOTES.md
