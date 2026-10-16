@@ -30,6 +30,7 @@ class MessageRead(BaseModel):
     status: MessageStatus
     attempts: int
     last_error: str | None
+    terminal_failure: bool
     provider_message_id: str | None
     broker_message_id: str | None
     received_at: datetime

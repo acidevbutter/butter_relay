@@ -26,8 +26,10 @@ class MessageService:
             raise NotFoundError(f"Message {message_id} not found")
         return message
 
-    async def get_by_broker_message_id(self, broker_message_id: str) -> Message | None:
-        return await self.repository.get_by_broker_message_id(broker_message_id)
+    async def get_by_broker_message_id(
+        self, broker_message_id: str, project_id: uuid.UUID | None = None
+    ) -> Message | None:
+        return await self.repository.get_by_broker_message_id(broker_message_id, project_id)
 
     async def create(self, payload: MessageCreate) -> Message:
         return await self.repository.create(payload)
@@ -38,5 +40,7 @@ class MessageService:
     async def mark_sent(self, message: Message, provider_message_id: str) -> Message:
         return await self.repository.mark_sent(message, provider_message_id)
 
-    async def mark_failed(self, message: Message, error: str) -> Message:
-        return await self.repository.mark_failed(message, error)
+    async def mark_failed(
+        self, message: Message, error: str, *, terminal: bool = False
+    ) -> Message:
+        return await self.repository.mark_failed(message, error, terminal=terminal)
