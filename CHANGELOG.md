@@ -4,6 +4,12 @@ Registro retroativo baseado em todos os commits da branch `master`.
 
 ## Unreleased
 
+- Falhas sempre registradas (DVB-344): a `Message` passa a ser criada antes da consulta
+  ao Blob (falha do Blob aparece no log e o retry reaproveita a linha), o payload
+  renderizado (com `cta_link`) é gravado, e qualquer exceção inesperada marca a
+  mensagem como `failed` terminal (`unexpected error: <Tipo>`) em vez de deixá-la presa
+  em `processing`.
+
 - Idempotência e falha terminal de mensagens (DVB-457): `UNIQUE (project_id,
   broker_message_id)` em `messages` (migration `c5a8d1f3e7b2`, que deduplica linhas
   antigas antes de criar a constraint) e nova coluna `terminal_failure`. Erros

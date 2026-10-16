@@ -1,4 +1,5 @@
 import uuid
+from typing import Any
 
 from app.core.decorators import log_errors
 from app.core.exceptions import NotFoundError
@@ -34,8 +35,10 @@ class MessageService:
     async def create(self, payload: MessageCreate) -> Message:
         return await self.repository.create(payload)
 
-    async def mark_processing(self, message: Message, rendered_subject: str) -> Message:
-        return await self.repository.mark_processing(message, rendered_subject)
+    async def mark_processing(
+        self, message: Message, rendered_subject: str, payload: dict[str, Any] | None = None
+    ) -> Message:
+        return await self.repository.mark_processing(message, rendered_subject, payload)
 
     async def mark_sent(self, message: Message, provider_message_id: str) -> Message:
         return await self.repository.mark_sent(message, provider_message_id)
