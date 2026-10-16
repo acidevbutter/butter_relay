@@ -4,6 +4,16 @@ Registro retroativo baseado em todos os commits da branch `master`.
 
 ## Unreleased
 
+- S1, provider completo (DVB-306):
+  - `EmailProvider.send(OutboundEmail)` com to/cc/bcc, reply-to, HTML + texto, headers e
+    anexos, no Brevo e no SMTP. O SMTP monta multipart/alternative com Message-ID próprio.
+  - SMTP com `smtp_security` (`none` só em development; fora dele o padrão é `starttls`),
+    `ssl`, `smtp_username` e senha.
+  - Segredos por projeto cifrados com MultiFernet (`RELAY_SECRETS_KEYS`, obrigatório fora
+    de development; migration `f1a8c4d6b3e9`). A chave Brevo do projeto tem prioridade
+    sobre a global. Admin e API só mostram `has_smtp_password`/`has_brevo_api_key`.
+  - `EmailSendError.retryable`.
+
 - Proteção de dados (DVB-208, M-05):
   - `GET /api/v1/messages*` não devolve mais o `payload`, mascara o destinatário
     (`a***@dominio`) e redige o `last_error`.

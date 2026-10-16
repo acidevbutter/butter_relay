@@ -12,6 +12,7 @@ from app.core.email_provider import (
     BrevoEmailProvider,
     DeliveryProvider,
     EmailSendError,
+    OutboundEmail,
     ProviderResult,
     SmtpEmailProvider,
     get_email_provider_for_project,
@@ -71,7 +72,14 @@ async def test_smtp_provider_wraps_connection_errors_as_email_send_error(
         caplog.at_level(logging.WARNING, logger="app.core.email_provider"),
         pytest.raises(EmailSendError, match="SMTP send failed"),
     ):
-        await provider.send(to="a@b.co", subject="s", html="<p>x</p>", from_email="f@b.co")
+        await provider.send(
+            OutboundEmail(
+                to=["a@b.co"],
+                subject="s",
+                html="<p>x</p>",
+                from_email="f@b.co",
+            )
+        )
 
     records = [r for r in caplog.records if getattr(r, "event", None) == "email_provider_error"]
     assert len(records) == 1
@@ -95,10 +103,12 @@ async def test_brevo_failures_log_provider_error_without_recipient_or_body(
         pytest.raises(EmailSendError),
     ):
         await provider.send(
-            to="recipient@example.com",
-            subject="Subject",
-            html="<p>Body</p>",
-            from_email="sender@example.com",
+            OutboundEmail(
+                to=["recipient@example.com"],
+                subject="Subject",
+                html="<p>Body</p>",
+                from_email="sender@example.com",
+            )
         )
     await client.aclose()
 
@@ -124,7 +134,14 @@ async def test_brevo_transport_error_is_logged_and_becomes_a_transient_send_erro
         caplog.at_level(logging.WARNING, logger="app.core.email_provider"),
         pytest.raises(EmailSendError, match="ConnectError") as excinfo,
     ):
-        await provider.send(to="a@b.co", subject="s", html="<p>x</p>", from_email="f@b.co")
+        await provider.send(
+            OutboundEmail(
+                to=["a@b.co"],
+                subject="s",
+                html="<p>x</p>",
+                from_email="f@b.co",
+            )
+        )
     await client.aclose()
 
     assert excinfo.value.permanent is False  # a network blip is worth retrying
@@ -256,8 +273,6 @@ async def _seed(
 async def test_worker_resolves_provider_from_the_project(
     db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import app.worker.tasks as tasks_module
-
     project_id = await _seed(
         db_session,
         delivery_provider=DeliveryProvider.SMTP,
@@ -267,11 +282,13 @@ async def test_worker_resolves_provider_from_the_project(
     fake_provider.send.return_value = ProviderResult(provider_message_id="smtp-1")
     calls: list[tuple[str, dict[str, object]]] = []
 
-    def factory(provider: str, config: dict[str, object], _settings: object) -> AsyncMock:
+    def factory(
+        provider: str, config: dict[str, object], _settings: object, _secrets: object = None
+    ) -> AsyncMock:
         calls.append((provider, dict(config)))
         return fake_provider
 
-    monkeypatch.setattr(tasks_module, "get_email_provider_for_project", factory)
+    monkeypatch.setattr("app.projects.service.get_email_provider_for_project", factory)
 
     await process_message("task-1", str(project_id), "hello", "to@example.com", {"name": "Ana"})
 
@@ -376,8 +393,17 @@ async def test_delivery_endpoint_requires_authentication(client, db_session) -> 
 
 @pytest.mark.parametrize(
     ("status", "permanent"),
-    [(400, True), (401, True), (403, True), (404, True), (422, True),
-     (408, False), (429, False), (500, False), (503, False)],
+    [
+        (400, True),
+        (401, True),
+        (403, True),
+        (404, True),
+        (422, True),
+        (408, False),
+        (429, False),
+        (500, False),
+        (503, False),
+    ],
 )
 async def test_brevo_status_classification(status: int, permanent: bool) -> None:
     client = httpx.AsyncClient(
@@ -386,7 +412,14 @@ async def test_brevo_status_classification(status: int, permanent: bool) -> None
     provider = BrevoEmailProvider(api_key="k", client=client)
 
     with pytest.raises(EmailSendError) as excinfo:
-        await provider.send(to="a@b.co", subject="s", html="<p>x</p>", from_email="f@b.co")
+        await provider.send(
+            OutboundEmail(
+                to=["a@b.co"],
+                subject="s",
+                html="<p>x</p>",
+                from_email="f@b.co",
+            )
+        )
     await client.aclose()
 
     assert excinfo.value.permanent is permanent

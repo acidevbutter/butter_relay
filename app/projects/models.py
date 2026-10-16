@@ -2,10 +2,11 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import JSON, Boolean, DateTime, String, func
+from sqlalchemy import JSON, Boolean, DateTime, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.email_provider import DeliveryProvider
+from app.core.secrets import secret_flags
 from app.db.base import Base
 
 
@@ -36,9 +37,20 @@ class Project(Base):
         server_default=DeliveryProvider.BREVO.value,
     )
     delivery_config: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    # Fernet-encrypted JSON {"smtp_password": ..., "brevo_api_key": ...} (DVB-306).
+    # Write-only: never serialised; read only by the provider factory.
+    delivery_secrets_enc: Mapped[str | None] = mapped_column(Text, default=None)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     @property
     def queue_name(self) -> str:
         return queue_name_for(self.slug)
+
+    @property
+    def has_smtp_password(self) -> bool:
+        return secret_flags(self.delivery_secrets_enc)["has_smtp_password"]
+
+    @property
+    def has_brevo_api_key(self) -> bool:
+        return secret_flags(self.delivery_secrets_enc)["has_brevo_api_key"]

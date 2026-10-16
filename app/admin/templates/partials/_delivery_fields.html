@@ -13,3 +13,11 @@
 <input type="text" name="smtp_host" placeholder="mailpit" value="{{ cur.get('smtp_host', '') or '' }}">
 <label>SMTP port</label>
 <input type="number" name="smtp_port" min="1" max="65535" placeholder="1025" value="{{ cur.get('smtp_port', '') or '' }}">
+<label>SMTP security</label>
+<select name="smtp_security">
+    {% for opt, label in [("", "default (none in development, STARTTLS elsewhere)"), ("starttls", "STARTTLS"), ("ssl", "SSL/TLS (implicit)"), ("none", "none (development only)")] %}
+    <option value="{{ opt }}" {{ "selected" if (cur.get('smtp_security') or '') == opt }}>{{ label }}</option>
+    {% endfor %}
+</select>
+<label>SMTP username (the password is set below, write-only)</label>
+<input type="text" name="smtp_username" autocomplete="off" value="{{ cur.get('smtp_username', '') or '' }}">
