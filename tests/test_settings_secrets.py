@@ -37,6 +37,9 @@ def _prod(**overrides: object) -> Settings:
         "session_secret": "real-secret",
         "database_password": "real-password",
         "relay_secrets_keys": "k" * 43 + "=",
+        # CI exports DEBUG=true for the admin-cookie tests; production settings here
+        # must not inherit it.
+        "debug": False,
     }
     values.update(overrides)
     return Settings(**values)  # type: ignore[arg-type]
@@ -70,5 +73,6 @@ def test_non_dev_valid_config_passes() -> None:
         database_password="real-password",
         brevo_api_key="key",
         relay_secrets_keys="k" * 43 + "=",
+        debug=False,
     )
     assert settings.session_secret == "real-secret"
