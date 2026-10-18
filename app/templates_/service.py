@@ -1,3 +1,5 @@
+import hashlib
+import json
 import uuid
 from typing import Any
 
@@ -15,6 +17,13 @@ from app.templates_.schemas import TemplateCreate
 # and payload data from producer apps flows into them -- sandboxed to block
 # access to unsafe attributes/globals.
 _jinja_env = SandboxedEnvironment(autoescape=True)
+
+
+def content_hash(subject: str, html: str, variables_schema: dict[str, Any] | None) -> str:
+    canonical = json.dumps(
+        {"subject": subject, "html": html, "schema": variables_schema or {}}, sort_keys=True
+    )
+    return hashlib.sha256(canonical.encode()).hexdigest()
 
 
 @log_errors
@@ -47,15 +56,18 @@ class TemplateService:
             await self.repository.deactivate(current_active)
         return await self.repository.activate(template)
 
-    async def publish(self, payload: TemplateCreate) -> Template:
-        """Creates a new version of a template, deactivating the prior active version."""
+    async def publish(self, payload: TemplateCreate, *, activate: bool = True) -> Template:
+        """Creates a new version of a template. With `activate` (the default) it becomes
+        the active one and the prior active version is deactivated; otherwise it is
+        stored as an inactive draft that can be activated later."""
         self._validate_definition(payload)
         latest = await self.repository.get_latest_version(payload.project_id, payload.key)
         next_version = (latest.version + 1) if latest else 1
 
-        current_active = await self.repository.get_active(payload.project_id, payload.key)
-        if current_active is not None:
-            await self.repository.deactivate(current_active)
+        if activate:
+            current_active = await self.repository.get_active(payload.project_id, payload.key)
+            if current_active is not None:
+                await self.repository.deactivate(current_active)
 
         template = Template(
             project_id=payload.project_id,
@@ -64,9 +76,27 @@ class TemplateService:
             html_template=payload.html_template,
             variables_schema=payload.variables_schema,
             version=next_version,
-            is_active=True,
+            is_active=activate,
         )
         return await self.repository.create(template)
+
+    async def publish_if_changed(
+        self, payload: TemplateCreate, *, activate: bool = True
+    ) -> tuple[Template, bool]:
+        """Publishes only when subject/html/schema differ from the latest version
+        (content hash), so re-uploading the same file is a no-op (DVB-307). Returns
+        (template, created). Invalid content raises 422 before anything is stored."""
+        self._validate_definition(payload)
+        latest = await self.repository.get_latest_version(payload.project_id, payload.key)
+        if latest is not None and content_hash(
+            latest.subject_template, latest.html_template, latest.variables_schema
+        ) == content_hash(
+            payload.subject_template, payload.html_template, payload.variables_schema
+        ):
+            if activate and not latest.is_active:
+                return await self.activate(latest.id), False
+            return latest, False
+        return await self.publish(payload, activate=activate), True
 
     @staticmethod
     def _validate_definition(payload: TemplateCreate) -> None:

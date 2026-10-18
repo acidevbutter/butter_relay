@@ -164,6 +164,15 @@ Lado `devbutter_backend` (hoje: um único `RELAY_PROJECT_ID` global e `RelayClie
   `devbutter_pending_account_link`, `devbutter_quote_received`, `devbutter_password_recovery`,
   `devbutter_subaccount_onboarding`, `devbutter_commercial_info_expiring`). Um Project novo não
   tem template nenhum — sem ele o worker falha com “No active template”.
+
+Para criar os sete templates padrão que ainda não existem, execute no ambiente do Relay:
+
+```bash
+python -m scripts.seed_devbutter_templates <project-uuid>
+```
+
+O comando valida e publica somente as chaves sem versão ativa; não envia mensagens nem
+substitui templates já ativos. A imagem da API inclui o script em `/app/scripts/`.
 - [ ] **Tela “Configurações da company” no admin DevButter** com o campo *Meio de disparo*
   (`brevo` | `smtp`). Ao salvar: `PUT {RELAY_URL}/api/v1/projects/{relay_project_id}/delivery`
   com o Bearer da company. Guarde essa API key **criptografada** (ela dá acesso a templates e ao

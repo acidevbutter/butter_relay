@@ -55,3 +55,9 @@ class ProjectRepository:
         except IntegrityError as exc:
             await self.session.rollback()
             raise ConflictError(f"A project with slug {slug!r} already exists") from exc
+
+    async def set_secrets(self, project: Project, token: str | None) -> Project:
+        project.delivery_secrets_enc = token
+        await self.session.commit()
+        await self.session.refresh(project)
+        return project

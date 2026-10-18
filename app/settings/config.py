@@ -29,8 +29,24 @@ class Settings(BaseSettings):
     # `redis` service for dev.
     redis_url: str = "redis://redis:6379/0"
     relay_queue_name: str = "relay-shared"
+    # Largest JSON payload a task may carry; bigger ones are rejected, not rendered (DVB-188).
+    relay_max_payload_bytes: int = 64 * 1024
+    # Requests per minute per API key (DVB-308); a project may override it. 0 disables.
+    relay_default_rate_per_minute: int = 120
+    # Legacy send_task(project_id, template_key, to, payload) straight into Redis trusts
+    # the producer's project_id (H-02). Turn off once producers use the HTTP API.
+    allow_legacy_send_task: bool = True
+    # When set, /admin and /api/v1/admin respond only on these hosts (comma-separated);
+    # other hosts only serve the public send API and /health (DVB-309).
+    admin_allowed_hosts: str = ""
+    # Payloads (rendered personal data) of finished messages and the recipient of
+    # rejected tasks are cleared after this many days (DVB-208 / LGPD).
+    message_body_retention_days: int = 30
 
     brevo_api_key: str = ""
+    # Fernet keys (comma-separated, newest first) that encrypt per-project delivery
+    # secrets at rest (DVB-306). Mandatory outside development.
+    relay_secrets_keys: str = ""
     allowed_recipient_domains: str = ""
 
     # Only used when environment == "development" (see get_email_provider) --
@@ -78,8 +94,15 @@ class Settings(BaseSettings):
             raise ValueError(
                 "DATABASE_PASSWORD must not be left at its development default outside development"
             )
-        if not self.brevo_api_key:
-            raise ValueError("BREVO_API_KEY must be set outside development")
+        # BREVO_API_KEY is no longer mandatory here: a project may carry its own Brevo
+        # key (DVB-306). Projects that rely on the shared key are checked at startup
+        # (app.main) and fail permanently at send time when it is missing (DVB-206).
+        if self.debug:
+            raise ValueError(
+                "DEBUG must be false outside development (it disables secure session cookies)"
+            )
+        if not self.relay_secrets_keys.strip():
+            raise ValueError("RELAY_SECRETS_KEYS must be set outside development")
         return self
 
     def is_recipient_allowed(self, email: str) -> bool:

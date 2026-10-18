@@ -163,7 +163,6 @@ async def test_project_detail_shows_settings_and_channel(admin_client, db_sessio
 async def test_test_send_uses_the_project_provider(
     admin_client, db_session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import app.admin.router as admin_module
 
     await _create_project(admin_client, delivery_provider="smtp")
     project_id = await _project_id(db_session)
@@ -171,11 +170,13 @@ async def test_test_send_uses_the_project_provider(
     fake.send.return_value = ProviderResult(provider_message_id="test-1")
     seen: list[str] = []
 
-    def factory(provider: str, config: dict, _settings: object) -> AsyncMock:
+    def factory(
+        provider: str, config: dict, _settings: object, _secrets: object = None
+    ) -> AsyncMock:
         seen.append(provider)
         return fake
 
-    monkeypatch.setattr(admin_module, "get_email_provider_for_project", factory)
+    monkeypatch.setattr("app.projects.service.get_email_provider_for_project", factory)
 
     response = await admin_client.post(
         f"/admin/projects/{project_id}/test-send", data={"to": "me@acme.com"}
@@ -184,19 +185,18 @@ async def test_test_send_uses_the_project_provider(
     assert response.status_code == 200
     assert seen == ["smtp"]
     assert "Test e-mail sent to me@acme.com via smtp" in response.text
-    assert fake.send.await_args.kwargs["to"] == "me@acme.com"
+    assert fake.send.await_args.args[0].to == ["me@acme.com"]
 
 
 async def test_test_send_provider_failure_is_reported(
     admin_client, db_session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import app.admin.router as admin_module
 
     await _create_project(admin_client)
     project_id = await _project_id(db_session)
     fake = AsyncMock()
     fake.send.side_effect = EmailSendError("Brevo send failed (401): unauthorized")
-    monkeypatch.setattr(admin_module, "get_email_provider_for_project", lambda *a: fake)
+    monkeypatch.setattr("app.projects.service.get_email_provider_for_project", lambda *a: fake)
 
     response = await admin_client.post(
         f"/admin/projects/{project_id}/test-send", data={"to": "me@acme.com"}
@@ -327,7 +327,6 @@ async def test_preview_iframe_is_sandboxed(admin_client, db_session) -> None:
 async def test_resend_uses_project_provider_and_marks_sent(
     admin_client, db_session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import app.admin.router as admin_module
 
     await _create_project(admin_client, delivery_provider="smtp")
     project_id = await _project_id(db_session)
@@ -339,11 +338,13 @@ async def test_resend_uses_project_provider_and_marks_sent(
     fake.send.return_value = ProviderResult(provider_message_id="re-1")
     seen: list[str] = []
 
-    def factory(provider: str, config: dict, _settings: object) -> AsyncMock:
+    def factory(
+        provider: str, config: dict, _settings: object, _secrets: object = None
+    ) -> AsyncMock:
         seen.append(provider)
         return fake
 
-    monkeypatch.setattr(admin_module, "get_email_provider_for_project", factory)
+    monkeypatch.setattr("app.projects.service.get_email_provider_for_project", factory)
 
     message_id = message.id
 
@@ -359,7 +360,6 @@ async def test_resend_uses_project_provider_and_marks_sent(
 async def test_resend_provider_failure_marks_failed_without_500(
     admin_client, db_session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import app.admin.router as admin_module
 
     await _create_project(admin_client)
     project_id = await _project_id(db_session)
@@ -368,7 +368,7 @@ async def test_resend_provider_failure_marks_failed_without_500(
     )
     fake = AsyncMock()
     fake.send.side_effect = EmailSendError("nope")
-    monkeypatch.setattr(admin_module, "get_email_provider_for_project", lambda *a: fake)
+    monkeypatch.setattr("app.projects.service.get_email_provider_for_project", lambda *a: fake)
 
     message_id = message.id
 
@@ -395,3 +395,32 @@ async def test_message_log_shows_the_delivery_channel(admin_client, db_session) 
     assert "<th>Channel</th>" in listing.text
     assert '<td class="muted">smtp</td>' in listing.text
     assert "<th>Channel</th><td>smtp</td>" in detail.text
+
+
+async def test_rejected_messages_page_lists_unparseable_tasks(admin_client, db_session) -> None:
+    from app.rejected_messages.repository import RejectedMessageRepository
+    from app.rejected_messages.schemas import RejectedMessageCreate
+
+    await RejectedMessageRepository(db_session).create(
+        RejectedMessageCreate(
+            broker_message_id="task-bad-admin",
+            reason="Malformed relay message: badly formed hexadecimal UUID string",
+            raw_project_id="",
+            template_key="devbutter_quote_received",
+            to_email="ana@example.com",
+            payload_keys=["name"],
+        )
+    )
+
+    page = await admin_client.get("/admin/rejected-messages")
+
+    assert page.status_code == 200
+    assert "task-bad-admin" in page.text
+    assert "badly formed hexadecimal UUID string" in page.text
+    assert "(empty)" in page.text
+    assert 'href="/admin/rejected-messages"' in page.text
+
+
+async def test_rejected_messages_page_requires_login(client) -> None:
+    response = await client.get("/admin/rejected-messages", follow_redirects=False)
+    assert response.status_code in (302, 303, 401)

@@ -17,6 +17,23 @@
             {% endif %}
         </tbody>
     </table>
+    {% if attempts %}
+    <h3>Attempts</h3>
+    <table id="attempts">
+        <thead><tr><th>#</th><th>Outcome</th><th>Final</th><th>Error / provider id</th><th>At</th></tr></thead>
+        <tbody>
+        {% for a in attempts %}
+            <tr>
+                <td>{{ a.number }}</td>
+                <td><span class="badge {{ a.outcome }}">{{ a.outcome }}</span></td>
+                <td>{{ "yes" if a.terminal else "-" }}</td>
+                <td class="{{ 'error' if a.error else 'muted' }}">{{ a.error or a.provider_message_id or "-" }}</td>
+                <td class="muted">{{ a.created_at }}</td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% endif %}
     {% if message.status == "failed" %}
     <form method="post" action="/admin/messages/{{ message.id }}/resend" style="margin-top: 12px;">
         <button type="submit">Resend</button>

@@ -20,13 +20,9 @@ There are two independent auth schemes in this app — don't mix them up:
   `SESSION_SECRET`. curl needs `-c cookies.txt -b cookies.txt` to carry the
   session across requests.
 
-There is **no HTTP endpoint to send/create a message**. Per `docs/API_SPEC.md` and
-`app/messages/router.py` (only `GET /` and `GET /{id}` exist), producers enqueue
-via a Celery task (`celery_app.send_task("butter_relay.process_message", kwargs=
-{project_id, template_key, to, payload}, queue="relay-shared")`), and the worker
-(`app/worker/tasks.py`) renders the template and calls Brevo. That path is not
-curl-testable and is out of scope for this document — only the read endpoints under
-`/api/v1/messages` are covered below.
+Sending is over HTTPS: `POST /api/v1/messages/send` (section "Messages" below), with a key
+that has the `send` scope. The legacy Celery task (`celery_app.send_task("butter_relay.process_message",
+...)`) still works while `ALLOW_LEGACY_SEND_TASK=true`, but it trusts the producer's `project_id`.
 
 ## Env vars for the commands below
 
@@ -440,6 +436,37 @@ invalid `variables_schema`, or a `key` outside `[A-Za-z0-9][A-Za-z0-9_.-]{0,149}
 Read-only — this is the delivery log for messages enqueued via the Celery worker
 (see the intro). There is **no create/send endpoint here**; do not expect to be
 able to POST a message via HTTP.
+
+### POST /api/v1/messages/send
+
+Send an e-mail. **Auth:** project API key with scope `send`. `project_id` is always the key's
+project; `from` is not accepted (422). Answers `202 {message_id, status, type}` after storing the
+message and queuing it.
+
+Template mode (`type` + `payload`) or raw mode (`type` + `subject` + `html`, optional `text`):
+
+```bash
+curl -s -i -X POST "$BASE_URL/api/v1/messages/send" \
+  -H "Authorization: Bearer $API_KEY" -H "Idempotency-Key: order-123-processing" \
+  -H "Content-Type: application/json" \
+  -d '{"type":"woocommerce.order","to":["cliente@example.com"],"reply_to":"contato@acme.com",
+       "subject":"Pedido #123","html":"<p>Recebemos seu pedido</p>","text":"Recebemos seu pedido",
+       "attachments":[{"filename":"nota.pdf","content_type":"application/pdf","content_base64":"JVBERi0xLjQ="}]}'
+```
+
+Limits: 50 recipients (to+cc+bcc), HTML 1 MB, attachments 2 MB, body 3 MB.
+
+| Case | Result |
+| --- | --- |
+| No key / wrong key | 401 |
+| Key without `send` | 403 |
+| Same `Idempotency-Key` and body | 200, same `message_id` (no second e-mail) |
+| Same `Idempotency-Key`, different body | 409 |
+| Undeclared `type` | 422 `unknown_email_type` |
+| `from` or any unknown field | 422 |
+| Body over 3 MB, HTML over 1 MB, attachments over 2 MB | 413 |
+| Rate limit | 429 + `Retry-After` |
+| Stored but not queued (Redis down) | 503 `enqueue_failed` + `Retry-After`; repeat with the same `Idempotency-Key` |
 
 ### GET /api/v1/messages/
 

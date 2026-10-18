@@ -4,6 +4,8 @@ from typing import Any
 from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse, RedirectResponse, Response
 
+from app.core.rate_limit import RateLimitExceeded
+
 Handler = Callable[[Request, Any], Awaitable[Response]]
 _registry: dict[type[Exception], Handler] = {}
 
@@ -48,8 +50,23 @@ class ForbiddenError(Exception):
 
 
 class ValidationFailedError(Exception):
-    def __init__(self, detail: str = "Validation failed"):
+    """422. `code` is an optional stable, machine-readable reason for API clients
+    (e.g. "unknown_email_type")."""
+
+    def __init__(self, detail: str = "Validation failed", code: str | None = None):
         self.detail = detail
+        self.code = code
+
+
+class PayloadTooLargeError(Exception):
+    def __init__(self, detail: str = "Request body too large"):
+        self.detail = detail
+
+
+class ServiceUnavailableError(Exception):
+    def __init__(self, detail: str = "Service unavailable", retry_after: int = 30):
+        self.detail = detail
+        self.retry_after = retry_after
 
 
 class SessionRequiredError(Exception):
@@ -83,11 +100,38 @@ async def handle_forbidden(request: Request, exc: ForbiddenError) -> JSONRespons
 
 @exception_handler(ValidationFailedError)
 async def handle_validation_failed(request: Request, exc: ValidationFailedError) -> JSONResponse:
-    return JSONResponse(
-        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, content={"detail": exc.detail}
-    )
+    content: dict[str, Any] = {"detail": exc.detail}
+    if exc.code:
+        content["code"] = exc.code
+    return JSONResponse(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, content=content)
 
 
 @exception_handler(SessionRequiredError)
 async def handle_session_required(request: Request, exc: SessionRequiredError) -> RedirectResponse:
     return RedirectResponse(url=exc.redirect_to, status_code=status.HTTP_303_SEE_OTHER)
+
+
+@exception_handler(RateLimitExceeded)
+async def handle_rate_limited(request: Request, exc: RateLimitExceeded) -> JSONResponse:
+    return JSONResponse(
+        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+        content={"detail": exc.detail, "code": "rate_limited"},
+        headers={"Retry-After": str(max(exc.retry_after, 1))},
+    )
+
+
+@exception_handler(PayloadTooLargeError)
+async def handle_payload_too_large(request: Request, exc: PayloadTooLargeError) -> JSONResponse:
+    return JSONResponse(
+        status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+        content={"detail": exc.detail, "code": "payload_too_large"},
+    )
+
+
+@exception_handler(ServiceUnavailableError)
+async def handle_unavailable(request: Request, exc: ServiceUnavailableError) -> JSONResponse:
+    return JSONResponse(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        content={"detail": exc.detail, "code": "enqueue_failed"},
+        headers={"Retry-After": str(exc.retry_after)},
+    )

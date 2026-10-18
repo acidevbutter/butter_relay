@@ -4,6 +4,127 @@ Registro retroativo baseado em todos os commits da branch `master`.
 
 ## Unreleased
 
+- S4, API HTTPS de envio (DVB-309):
+  - `POST /api/v1/messages/send` com `Authorization: Bearer` e escopo `send`. O
+    `project_id` vem sempre da chave (fecha o H-02 para quem usa HTTP); `from` não é
+    aceito (campos extras dão 422).
+  - Modo template (`type` + `payload`, validado contra o schema do template) e modo raw
+    (`subject` + `html` [+ `text`]); `to`/`cc`/`bcc`, `reply_to`, `headers` e anexos em
+    base64. Tipo não declarado: 422 `unknown_email_type` (salvo `allow_undeclared_types`).
+  - Limites: 50 destinatários, HTML 1 MB, anexos 2 MB, corpo 3 MB (413 antes de
+    interpretar o JSON).
+  - A `Message` é gravada antes de ir para a fila; resposta 202 `{message_id, status,
+    type}`. Se o enqueue falhar: 503 `enqueue_failed` com `Retry-After`, e repetir a
+    mesma `Idempotency-Key` reenfileira a mesma mensagem.
+  - `Idempotency-Key`: mesma chave e mesmo corpo devolvem a mesma mensagem (200); corpo
+    diferente dá 409. Índice único parcial `(project_id, idempotency_key)`.
+  - Migration `c7e3a9b5d1f4`: colunas em `messages` (destinatários, assunto/HTML/texto
+    raw, headers, origem, metadata, hash da requisição) e tabela `message_attachments`.
+  - Worker: nova task kwarg `message_id` (processa a mensagem gravada) sem quebrar o
+    `send_task` legado; `ALLOW_LEGACY_SEND_TASK=false` recusa o legado.
+  - `ADMIN_ALLOWED_HOSTS`: com a variável definida, o host público só responde
+    `/health` e a API de cliente; `/admin` e a API de serviço dão 404 fora dos hosts
+    de admin. Não há CORS habilitado.
+  - Retenção (LGPD): a limpeza de corpos agora também apaga HTML/texto raw e anexos.
+
+- S3, escopos, validade, rotação e rate limit (DVB-308):
+  - `api_keys.scopes` (`send`/`read`/`manage`; migration `b5d1f7a9c3e4` dá os três às
+    chaves existentes) e `require_scope` em todas as rotas `/api/v1/*`: leituras pedem
+    `read`; chaves, templates (inclusive upload) e canal de entrega pedem `manage`.
+    Sem o escopo, 403.
+  - Chaves de projetos externos nascem `send+read` e sem validade; `expires_in_days` é
+    configurável (o "30 dias fixo" virou só sugestão no admin).
+  - Rotação sem downtime: `POST /api/v1/api-keys/{id}/rotate` (e botão no admin) cria
+    chave nova com o mesmo label e escopos; a antiga vale até ser revogada ou até
+    `grace_hours`.
+  - Rate limit por chave no Redis (`RELAY_DEFAULT_RATE_PER_MINUTE=120`, override em
+    `projects.rate_per_minute`): 429 com `Retry-After` e `code: rate_limited`. Se o
+    Redis cair, o limite é liberado em vez de bloquear.
+
+- S2, catálogo de tipos e upload (DVB-307):
+  - Domínio `email_types` (migration `a3c9e5f7b1d2`) com chave por projeto, categoria
+    (`transactional`/`marketing`/`system`), modo (`template`/`raw`/`both`), locale e
+    `sample_payload`, além de `projects.allow_undeclared_types`.
+  - `GET /api/v1/email-types` para auto-descoberta (só tipos ativos do próprio projeto).
+    Tipo não declarado no envio gera 422 `unknown_email_type` (aplicado na S4).
+  - `POST /api/v1/templates/upload` (multipart, .html até 512 KB, UTF-8): 201 cria
+    versão, 200 quando o conteúdo é o mesmo (hash de subject + html + schema); upload
+    inválido gera 422 sem tocar na versão ativa; `activate=false` cria rascunho.
+  - 422 da API passa a ter `code` opcional.
+  - Admin: card "E-mail types" (cadastrar, ativar/desativar, preview com o sample),
+    upload de .html na publicação de template e checkbox de tipos não declarados.
+
+- Validação de configuração (DVB-206, M-03):
+  - `DEBUG=true` fora de development é recusado no boot (desligaria o cookie de sessão
+    seguro).
+  - `BREVO_API_KEY` deixa de ser obrigatória: no startup a API loga `brevo_key_missing`
+    listando os projetos Brevo ativos sem chave própria, e o envio falha de forma
+    permanente com uma mensagem clara.
+  - `docker-compose.hostinger.yml` passa `RELAY_SECRETS_KEYS` (e `SESSION_SECRET` no
+    worker) só a partir do ambiente, sem default.
+
+- S1, provider completo (DVB-306):
+  - `EmailProvider.send(OutboundEmail)` com to/cc/bcc, reply-to, HTML + texto, headers e
+    anexos, no Brevo e no SMTP. O SMTP monta multipart/alternative com Message-ID próprio.
+  - SMTP com `smtp_security` (`none` só em development; fora dele o padrão é `starttls`),
+    `ssl`, `smtp_username` e senha.
+  - Segredos por projeto cifrados com MultiFernet (`RELAY_SECRETS_KEYS`, obrigatório fora
+    de development; migration `f1a8c4d6b3e9`). A chave Brevo do projeto tem prioridade
+    sobre a global. Admin e API só mostram `has_smtp_password`/`has_brevo_api_key`.
+  - `EmailSendError.retryable`.
+
+- Proteção de dados (DVB-208, M-05):
+  - `GET /api/v1/messages*` não devolve mais o `payload`, mascara o destinatário
+    (`a***@dominio`) e redige o `last_error`.
+  - Erro do Brevo guarda só o `code` e a mensagem redigida e truncada (300 caracteres),
+    nunca o corpo inteiro; erro do SMTP também é redigido.
+  - O log de destinatário bloqueado mascara o endereço.
+  - Retenção: `MESSAGE_BODY_RETENTION_DAYS` (30). `python -m scripts.purge_message_bodies`
+    (ou a task `butter_relay.purge_message_bodies` no `celery beat`) limpa o payload das
+    mensagens finalizadas e o destinatário das rejeitadas.
+
+- Rastreabilidade e limites (DVB-188):
+  - Histórico de tentativas em `message_attempts` (migration `e7c3a5b8d2f6`), mostrado no
+    detalhe da mensagem no admin.
+  - Mensagem reentregue ainda em `processing` (worker caiu no meio do envio) vira falha
+    terminal "delivery outcome unknown" em vez de ser enviada de novo: sem e-mail duplicado;
+    o admin decide o Resend.
+  - Limites: payload da task até `RELAY_MAX_PAYLOAD_BYTES` (64 KB, maior vai para
+    `rejected_messages`), payload precisa ser objeto, assunto do template até 500 caracteres,
+    HTML até 512 KB, `limit` da listagem de mensagens entre 1 e 200.
+  - Dashboard: status das últimas 24h, falhas terminais, rejeitadas, presas em `processing`
+    há mais de 15 min e backlog de cada fila no Redis.
+
+- Mensagem malformada não some mais (DVB-456): task com `project_id` que não é UUID,
+  ou sem `template_key`/`to`, é gravada em `rejected_messages` (migration `d2b9e6a4f1c8`;
+  guarda motivo, project id enviado, template, destinatário e só as chaves do payload) e
+  a task termina como FAILURE no Celery, com log `relay_message_rejected`, em vez de
+  "succeeded". Nova página no admin: `/admin/rejected-messages`.
+
+- Corrigido (#63): o `BlobClient` abre um `httpx.AsyncClient` por chamada. O cliente
+  global ficava preso ao event loop da primeira task e as seguintes falhavam com
+  "Event loop is closed".
+
+- Falhas sempre registradas (DVB-344): a `Message` passa a ser criada antes da consulta
+  ao Blob (falha do Blob aparece no log e o retry reaproveita a linha), o payload
+  renderizado (com `cta_link`) é gravado, e qualquer exceção inesperada marca a
+  mensagem como `failed` terminal (`unexpected error: <Tipo>`) em vez de deixá-la presa
+  em `processing`.
+
+- Idempotência e falha terminal de mensagens (DVB-457): `UNIQUE (project_id,
+  broker_message_id)` em `messages` (migration `c5a8d1f3e7b2`, que deduplica linhas
+  antigas antes de criar a constraint) e nova coluna `terminal_failure`. Erros
+  permanentes do provider (Brevo 400/401/403/404/422, SMTP 5xx, destinatário recusado,
+  canal desconhecido) e destinatário bloqueado pela política de não produção falham de
+  vez, sem gastar retries; a última tentativa também marca a falha como terminal. Uma
+  redelivery de mensagem com falha terminal é ignorada. Erros de transporte do Brevo
+  (`httpx.HTTPError`) viram `EmailSendError` retentável em vez de exceção crua.
+
+- Adicionado publicador idempotente dos sete templates transacionais `devbutter_*`
+  por Project (`scripts/seed_devbutter_templates.py`). A operação cria somente
+  templates sem versão ativa, usa `TemplateService` para validar Jinja e registra
+  versões no Relay sem enviar e-mails; o script também está disponível na imagem da API.
+
 - Admin (DVB-205): CSP restritiva com nonce por requisição nas páginas HTML
   (`script-src 'nonce-…' https://unpkg.com`, sem `unsafe-inline`/`unsafe-eval`,
   `frame-ancestors 'none'`, `object-src 'none'`), mais `X-Frame-Options`,

@@ -16,11 +16,23 @@
         <input type="email" name="default_sender_email" required value="{{ project.default_sender_email }}">
         <label>Default sender name</label>
         <input type="text" name="default_sender_name" required value="{{ project.default_sender_name }}">
-        {% set values = {'delivery_provider': project.delivery_provider, 'smtp_host': project.delivery_config.get('smtp_host'), 'smtp_port': project.delivery_config.get('smtp_port')} %}
+        {% set values = {'delivery_provider': project.delivery_provider, 'smtp_host': project.delivery_config.get('smtp_host'), 'smtp_port': project.delivery_config.get('smtp_port'), 'smtp_security': project.delivery_config.get('smtp_security'), 'smtp_username': project.delivery_config.get('smtp_username')} %}
         {% include "partials/_delivery_fields.html" %}
-        <label><input type="checkbox" name="external" value="true" {{ "checked" if project.external }}> External project (new API keys expire after 30 days)</label>
+        <label><input type="checkbox" name="external" value="true" {{ "checked" if project.external }}> External project (new keys default to send + read scopes)</label>
         <label><input type="checkbox" name="is_active" value="true" {{ "checked" if project.is_active }}> Active (inactive projects are skipped by the worker)</label>
+        <label><input type="checkbox" name="allow_undeclared_types" value="true" {{ "checked" if project.allow_undeclared_types }}> Allow sending e-mail types that are not declared below</label>
         <button type="submit">Save settings</button>
+    </form>
+    <form method="post" action="/admin/projects/{{ project.id }}/secrets" style="margin-top: 16px;" autocomplete="off">
+        <h3>Delivery secrets (write-only, encrypted)</h3>
+        <p class="muted">Leave a field blank to keep the stored value. Values are never shown again.</p>
+        <label>SMTP password &mdash; {{ "set" if project.has_smtp_password else "not set" }}</label>
+        <input type="password" name="smtp_password" autocomplete="new-password">
+        {% if project.has_smtp_password %}<label><input type="checkbox" name="clear" value="smtp_password"> Remove the stored SMTP password</label>{% endif %}
+        <label>Brevo API key for this project &mdash; {{ "set" if project.has_brevo_api_key else "not set (uses the deployment key)" }}</label>
+        <input type="password" name="brevo_api_key" autocomplete="new-password">
+        {% if project.has_brevo_api_key %}<label><input type="checkbox" name="clear" value="brevo_api_key"> Remove the project's Brevo key (fall back to the deployment key)</label>{% endif %}
+        <button class="secondary" type="submit">Save secrets</button>
     </form>
     <form method="post" action="/admin/projects/{{ project.id }}/test-send" style="margin-top: 16px;">
         <label>Send a test e-mail through this project's channel</label>
@@ -37,30 +49,41 @@
     </div>
     {% endif %}
     <table>
-        <thead><tr><th>Label</th><th>Last used</th><th>Expires</th><th>Status</th><th></th></tr></thead>
+        <thead><tr><th>Label</th><th>Scopes</th><th>Last used</th><th>Expires</th><th>Status</th><th></th></tr></thead>
         <tbody>
         {% for k in api_keys %}
             <tr>
                 <td>{{ k.label }}</td>
+                <td><code>{{ (k.scopes or []) | join(", ") }}</code></td>
                 <td class="muted">{{ k.last_used_at or "never" }}</td>
                 <td class="muted">{{ k.expires_at or "never" }}</td>
-                <td>{{ "revoked" if k.revoked_at else ("expired" if k.expires_at and k.expires_at < now() else "active") }}</td>
+                <td>{{ "revoked" if k.revoked_at else ("expired" if is_expired(k.expires_at) else "active") }}</td>
                 <td>
                     {% if not k.revoked_at %}
-                    <form method="post" action="/admin/projects/{{ project.id }}/api-keys/{{ k.id }}/revoke">
+                    <form method="post" action="/admin/projects/{{ project.id }}/api-keys/{{ k.id }}/rotate" style="display:inline">
+                        <input type="number" name="grace_hours" min="0" placeholder="grace h" style="width:80px">
+                        <button class="secondary" type="submit">Rotate</button>
+                    </form>
+                    <form method="post" action="/admin/projects/{{ project.id }}/api-keys/{{ k.id }}/revoke" style="display:inline">
                         <button class="danger" type="submit">Revoke</button>
                     </form>
                     {% endif %}
                 </td>
             </tr>
         {% else %}
-            <tr><td colspan="5" class="muted">No API keys yet.</td></tr>
+            <tr><td colspan="6" class="muted">No API keys yet.</td></tr>
         {% endfor %}
         </tbody>
     </table>
     <form method="post" action="/admin/projects/{{ project.id }}/api-keys" style="margin-top: 12px;">
         <label>New key label</label>
         <input type="text" name="label" required placeholder="crate-diggr-prod">
+        <label>Scopes {% if project.external %}(external projects default to send + read){% endif %}</label>
+        {% for scope in ["send", "read", "manage"] %}
+        <label style="display:inline"><input type="checkbox" name="scopes" value="{{ scope }}" {{ "checked" if scope != "manage" or not project.external }}> {{ scope }}</label>
+        {% endfor %}
+        <label>Expires in days (blank = never{% if project.external %}; {{ suggested_external_days }} is the suggestion for external clients{% endif %})</label>
+        <input type="number" name="expires_in_days" min="1" max="3650" value="{{ suggested_external_days if project.external else '' }}">
         <button type="submit">Generate key</button>
     </form>
 </div>
@@ -107,17 +130,66 @@
         {% endfor %}
         </tbody>
     </table>
-    <form id="template-form" method="post" action="/admin/projects/{{ project.id }}/templates" style="margin-top: 12px;">
+    <form id="template-form" method="post" action="/admin/projects/{{ project.id }}/templates" enctype="multipart/form-data" style="margin-top: 12px;">
         <label>Template key (letters, digits, _ - .)</label>
         <input type="text" id="template_key" name="key" required placeholder="welcome_email" value="{{ form.get('key', '') }}">
         <label>Subject (Jinja2)</label>
         <input type="text" id="subject_template" name="subject_template" required placeholder="Welcome, {{ '{{' }} name {{ '}}' }}!" value="{{ form.get('subject_template', '') }}">
         <label>HTML body (Jinja2)</label>
-        <textarea id="html_template" name="html_template" rows="8" required placeholder="&lt;p&gt;Hi {{ '{{' }} name {{ '}}' }}&lt;/p&gt;">{{ form.get('html_template', '') }}</textarea>
+        <textarea id="html_template" name="html_template" rows="8" placeholder="&lt;p&gt;Hi {{ '{{' }} name {{ '}}' }}&lt;/p&gt;">{{ form.get('html_template', '') }}</textarea>
+        <label>&hellip;or upload an .html file (up to 512 KB; replaces the text above)</label>
+        <input type="file" name="html_file" accept=".html,.htm,text/html">
         <label>Variables schema (optional JSON Schema; payloads that don't match are rejected)</label>
         <textarea id="variables_schema" name="variables_schema" rows="4" placeholder='{"type": "object", "required": ["name"]}'>{{ form.get('variables_schema', '') }}</textarea>
         <button type="button" class="secondary" data-apply-starter>Use DevButter starter</button>
         <button type="submit">Publish new version</button>
+    </form>
+</div>
+
+<div class="card" id="email-types">
+    <h3>E-mail types</h3>
+    <p class="muted">What this client sends. Clients discover them at <code>GET /api/v1/email-types</code>; an undeclared type is refused unless the setting above allows it. Template types render the active template with the same key.</p>
+    <table>
+        <thead><tr><th>Key</th><th>Category</th><th>Mode</th><th>Locale</th><th>Status</th><th></th></tr></thead>
+        <tbody>
+        {% for et in email_types %}
+            <tr>
+                <td><code>{{ et.key }}</code>{% if et.description %}<div class="muted">{{ et.description }}</div>{% endif %}</td>
+                <td>{{ et.category }}</td>
+                <td>{{ et.mode }}</td>
+                <td>{{ et.locale or "-" }}</td>
+                <td>{{ "active" if et.is_active else "inactive" }}</td>
+                <td>
+                    <form method="post" action="/admin/projects/{{ project.id }}/email-types/{{ et.id }}/toggle" style="display:inline">
+                        <button class="secondary" type="submit">{{ "Deactivate" if et.is_active else "Activate" }}</button>
+                    </form>
+                    {% if et.mode != "raw" %}
+                    <form hx-post="/admin/projects/{{ project.id }}/email-types/{{ et.id }}/preview" hx-target="#et-preview-{{ et.id }}" hx-swap="innerHTML" style="display:inline">
+                        <button class="secondary" type="submit">Preview with sample</button>
+                    </form>
+                    {% endif %}
+                </td>
+            </tr>
+            <tr><td colspan="6"><details><summary class="muted">Sample payload</summary><pre>{{ et.sample_payload | tojson(indent=2) }}</pre></details><div id="et-preview-{{ et.id }}"></div></td></tr>
+        {% else %}
+            <tr><td colspan="6" class="muted">No e-mail types declared yet.</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    <form method="post" action="/admin/projects/{{ project.id }}/email-types" style="margin-top: 12px;">
+        <label>Key (lowercase letters, digits, . _ -)</label>
+        <input type="text" name="key" required placeholder="woocommerce.customer_processing_order">
+        <label>Category</label>
+        <select name="category">{% for c in email_categories %}<option value="{{ c.value }}">{{ c.value }}</option>{% endfor %}</select>
+        <label>Mode</label>
+        <select name="mode">{% for m in email_modes %}<option value="{{ m.value }}">{{ m.value }}</option>{% endfor %}</select>
+        <label>Description</label>
+        <input type="text" name="description">
+        <label>Locale</label>
+        <input type="text" name="locale" placeholder="pt-BR">
+        <label>Sample payload (JSON)</label>
+        <textarea name="sample_payload" rows="3" placeholder="{}"></textarea>
+        <button type="submit">Save e-mail type</button>
     </form>
 </div>
 
