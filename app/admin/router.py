@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 from pydantic import EmailStr, TypeAdapter, ValidationError
 
 from app.admin.templating import templates
@@ -21,6 +21,8 @@ from app.api_keys.schemas import ApiKeyCreate
 from app.api_keys.service import SUGGESTED_EXTERNAL_KEY_DAYS
 from app.auth.dependencies import CurrentAdminUser
 from app.auth.models import AdminUser
+from app.clients.router import ManifestServiceDep
+from app.clients.schemas import ClientManifest
 from app.core.email_provider import (
     DeliveryProvider,
     EmailSendError,
@@ -196,6 +198,7 @@ class ProjectPage:
     api_key_service: ApiKeyServiceDep
     template_service: TemplateServiceDep
     email_type_service: EmailTypeServiceDep
+    manifest_service: ManifestServiceDep
 
     async def render(
         self,
@@ -207,6 +210,7 @@ class ProjectPage:
         error: str | None = None,
         new_key_plaintext: str | None = None,
         form: dict[str, Any] | None = None,
+        manifest_result: dict[str, Any] | None = None,
         status_code: int = 200,
     ) -> HTMLResponse:
         project = await self.project_service.get(project_id)
@@ -222,6 +226,7 @@ class ProjectPage:
                 "email_categories": list(EmailCategory),
                 "email_modes": list(EmailTypeMode),
                 "new_key_plaintext": new_key_plaintext,
+                "manifest_result": manifest_result,
                 "notice": notice,
                 "error": error,
                 "form": form or {},
@@ -241,6 +246,63 @@ async def project_detail(
     request: Request, admin_user: CurrentAdminUser, project_id: uuid.UUID, page: ProjectPageDep
 ) -> HTMLResponse:
     return await page.render(request, admin_user, project_id)
+
+
+@router.get("/projects/{project_id}/manifest.json", summary="Export client manifest (no secrets)")
+async def export_manifest(
+    admin_user: CurrentAdminUser,
+    project_id: uuid.UUID,
+    project_service: ProjectServiceDep,
+    manifest_service: ManifestServiceDep,
+) -> Response:
+    project = await project_service.get(project_id)
+    manifest = await manifest_service.export(project)
+    return Response(
+        content=manifest.model_dump_json(indent=2, exclude={"secrets"}),
+        media_type="application/json",
+        headers={"Content-Disposition": f'attachment; filename="{project.slug}.manifest.json"'},
+    )
+
+
+@router.post("/projects/{project_id}/manifest", summary="Import client manifest (preview/apply)")
+async def import_manifest(
+    request: Request,
+    admin_user: CurrentAdminUser,
+    project_id: uuid.UUID,
+    page: ProjectPageDep,
+    manifest_json: Annotated[str, Form()] = "",
+    manifest_file: Annotated[UploadFile | None, File()] = None,
+    action: Annotated[str, Form()] = "preview",
+    prune: Annotated[bool, Form()] = False,
+) -> HTMLResponse:
+    project = await page.project_service.get(project_id)
+    if manifest_file is not None and manifest_file.filename:
+        manifest_json = (await manifest_file.read()).decode("utf-8", errors="replace")
+    form = {"manifest_json": manifest_json, "prune": prune}
+    try:
+        manifest = ClientManifest.model_validate_json(manifest_json)
+        result = await page.manifest_service.apply(
+            project.slug, manifest, dry_run=action != "apply", prune=prune
+        )
+    except ValidationError as exc:
+        return await page.render(
+            request, admin_user, project_id, form=form,
+            error=_format_validation_error(exc), status_code=422,
+        )
+    except ValidationFailedError as exc:
+        details = "; ".join(f"{'.'.join(map(str, e['loc']))}: {e['msg']}" for e in exc.errors or [])
+        return await page.render(
+            request, admin_user, project_id, form=form,
+            error=f"{exc.detail}: {details}" if details else exc.detail, status_code=422,
+        )
+    notice = (
+        "Preview only: nothing was saved." if result.dry_run
+        else ("Manifest applied." if result.changed else "Manifest applied: nothing changed.")
+    )
+    return await page.render(
+        request, admin_user, project_id, form=form, notice=notice,
+        manifest_result=result.model_dump(),
+    )
 
 
 @router.post("/projects/{project_id}/settings", summary="Update project + delivery settings")

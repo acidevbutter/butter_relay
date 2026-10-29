@@ -4,8 +4,8 @@ Registro retroativo baseado em todos os commits da branch `master`.
 
 ## Unreleased
 
-- S5, cadastro de clientes e manifesto JSON (DVB-310, API; a Admin UI de importar/exportar fica
-  em slice própria):
+- S5, cadastro de clientes e manifesto JSON (DVB-310, API; Admin UI de importar/exportar na tela do projeto,
+  com preview do diff):
   - Token de serviço: `RELAY_ADMIN_TOKEN_HASH` (SHA-256 do token) autoriza `/api/v1/admin/*`
     via `Authorization: Bearer`, sem sessão de admin. Só essas rotas o aceitam; mensagens,
     templates e tipos de e-mail continuam exigindo chave de projeto.
