@@ -4,6 +4,17 @@ Registro retroativo baseado em todos os commits da branch `master`.
 
 ## Unreleased
 
+- S5, cadastro de clientes e manifesto JSON (DVB-310, API; a Admin UI de importar/exportar fica
+  em slice própria):
+  - Token de serviço: `RELAY_ADMIN_TOKEN_HASH` (SHA-256 do token) autoriza `/api/v1/admin/*`
+    via `Authorization: Bearer`, sem sessão de admin. Só essas rotas o aceitam; mensagens,
+    templates e tipos de e-mail continuam exigindo chave de projeto.
+  - `POST /api/v1/admin/clients`, chaves por slug (criar/listar/revogar/rotacionar; texto
+    claro só na criação), `GET /manifest/schema`, `GET|PUT /clients/{slug}/manifest`.
+  - `PUT` idempotente e atômico (uma transação), com `dry_run` (diff sem gravar) e `prune`
+    (desativa tipos/templates ausentes, nunca apaga). 422 com `errors[].loc` por caminho.
+    Segredos write-only; export nunca os devolve e pode ser reaplicado como está.
+
 - S4, API HTTPS de envio (DVB-309):
   - `POST /api/v1/messages/send` com `Authorization: Bearer` e escopo `send`. O
     `project_id` vem sempre da chave (fecha o H-02 para quem usa HTTP); `from` não é
