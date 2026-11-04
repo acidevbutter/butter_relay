@@ -353,7 +353,10 @@ network level (Dokploy's internal `dokploy-network`), not an API key.
 Everything runs on Dokploy, prod and staging alike — a Dokploy **Compose** service pointing at
 [`docker-compose.dokploy.yml`](docker-compose.dokploy.yml), built from
 [`docker/Dockerfile.dokploy`](docker/Dockerfile.dokploy). Platform-wide steps live in
-`devbutter_app/infra/dokploy/README.md`.
+`devbutter_app/infra/dokploy/README.md`. prod, preprod and staging share one Dokploy, so set
+`DEPLOY_ENV` on every environment: the api is published as `<DEPLOY_ENV>-relay-api` (e.g.
+`http://staging-relay-api:8000`). Never call the bare `relay-api` name, because it resolves to
+every environment at once.
 
 - **`relay-api`**: build target `api`, `uvicorn app.main:app` — the API/dashboard. Runs
   `alembic upgrade head` on boot (`docker-entrypoint.sh`); healthcheck `GET /health`.

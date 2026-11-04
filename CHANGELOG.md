@@ -10,7 +10,8 @@ Registro retroativo baseado em todos os commits da branch `master`.
   na API e `celery inspect ping` no worker). `docker-compose.dokploy.yml`
   substitui o `docker-compose.hostinger.yml`: worker sobe só com a API
   saudável, com `RUN_MIGRATIONS=false` (só a API roda `alembic upgrade head`)
-  e 60s de shutdown gracioso.
+  e 60s de shutdown gracioso. Aliases na `dokploy-network` levam o prefixo
+  `<DEPLOY_ENV>-` (prod, preprod e staging no mesmo Dokploy).
 
 - S4, API HTTPS de envio (DVB-309):
   - `POST /api/v1/messages/send` com `Authorization: Bearer` e escopo `send`. O

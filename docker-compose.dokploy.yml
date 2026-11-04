@@ -9,10 +9,12 @@
 #                Dokploy injects the Traefik labels (HTTPS via Let's Encrypt).
 #                No `ports:` here on purpose: Traefik is the only way in.
 #   Network:     dokploy-network (external, created by Dokploy) is shared with
-#                Traefik and the Dokploy-managed Postgres/Redis. The aliases are
-#                the stable inter-service DNS names the other services use in
-#                their *_BASE_URL vars -- one Dokploy server = one environment,
-#                or these aliases collide across staging/production.
+#                Traefik, the Dokploy-managed Postgres/Redis and EVERY environment
+#                on this server (prod, preprod, staging). So the inter-service
+#                aliases carry the environment: DEPLOY_ENV=staging publishes
+#                `staging-relay-api`, and that is the host the other services
+#                put in their *_BASE_URL vars. Never add an unprefixed alias here:
+#                it would resolve to all environments at once.
 #   Health:      each image ships its own HEALTHCHECK (api: GET /health,
 #                worker: celery inspect ping).
 #   Worker:      same Dockerfile, build target `worker` (Celery). The api runs
@@ -40,7 +42,7 @@ services:
     networks:
       dokploy-network:
         aliases:
-          - relay-api
+          - ${DEPLOY_ENV:?set DEPLOY_ENV to prod, preprod or staging}-relay-api
     restart: unless-stopped
     logging: *default-logging
 
