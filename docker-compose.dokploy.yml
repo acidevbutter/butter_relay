@@ -1,0 +1,78 @@
+# Dokploy "Compose" service -- Compose Path: ./docker-compose.dokploy.yml.
+#
+#   Environment: Dokploy "Environment" tab. Dokploy writes it to .env next to
+#                this file; every service loads it via env_file and compose
+#                interpolates ${VAR} from it. Nothing secret lives in git.
+#                The app refuses to boot outside development without its
+#                secrets (DVB-206), so a missing var fails the deploy loudly.
+#   Domains:     Dokploy "Domains" tab -> pick the service + container port;
+#                Dokploy injects the Traefik labels (HTTPS via Let's Encrypt).
+#                No `ports:` here on purpose: Traefik is the only way in.
+#   Network:     dokploy-network (external, created by Dokploy) is shared with
+#                Traefik, the Dokploy-managed Postgres/Redis and EVERY environment
+#                on this server (prod, preprod, staging). So the inter-service
+#                aliases carry the environment: DEPLOY_ENV=staging publishes
+#                `staging-relay-api`, and that is the host the other services
+#                put in their *_BASE_URL vars. Never add an unprefixed alias here:
+#                it would resolve to all environments at once.
+#   Health:      each image ships its own HEALTHCHECK (api: GET /health,
+#                worker: celery inspect ping).
+#   Worker:      same Dockerfile, build target `worker` (Celery). The api runs
+#                the migrations; the worker starts once the api is healthy and
+#                gets 60s to finish in-flight tasks on redeploy. REDIS_URL
+#                points at the Dokploy-managed Redis.
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+# ENVIRONMENT (staging|preprod|production) is the application mode and is
+# required: left unset the app defaults to `development` and skips every
+# secret validation. It is NOT DEPLOY_ENV (prod|preprod|staging), which only
+# prefixes the network aliases.
+
+services:
+  relay-api:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.dokploy
+      target: api
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      ENVIRONMENT: ${ENVIRONMENT:?set ENVIRONMENT to staging, preprod or production}
+    expose:
+      - "8000"
+    networks:
+      dokploy-network:
+        aliases:
+          - ${DEPLOY_ENV:?set DEPLOY_ENV to prod, preprod or staging}-relay-api
+    restart: unless-stopped
+    logging: *default-logging
+
+  relay-worker:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.dokploy
+      target: worker
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      ENVIRONMENT: ${ENVIRONMENT:?set ENVIRONMENT to staging, preprod or production}
+      RUN_MIGRATIONS: "false"
+    depends_on:
+      relay-api:
+        condition: service_healthy
+    stop_grace_period: 60s
+    networks:
+      - dokploy-network
+    restart: unless-stopped
+    logging: *default-logging
+
+networks:
+  dokploy-network:
+    external: true

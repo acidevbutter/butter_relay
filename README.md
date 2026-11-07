@@ -3,7 +3,7 @@
 DevButter's company-wide, multi-tenant transactional email service. Apps publish "send this email" jobs as a Celery task; Butter Relay consumes them, renders a versioned Jinja2 template, dispatches through the company's own delivery channel (Brevo by default), and logs every attempt. A server-rendered admin dashboard lets the team manage projects, API keys, templates, and the message log without touching the database directly.
 
 - **Multi-tenant**: one deployment serves every DevButter app/client (Crate Diggr, Orbit, GranAI, client sites, ...), each scoped as a `Project`.
-- **Queue-driven**: [Celery](https://docs.celeryq.dev/) with a Redis broker, same Redis instance in every environment (Coolify-managed) — no per-environment queue emulation to keep in sync with production, unlike the ElasticMQ/SQS setup this replaced.
+- **Queue-driven**: [Celery](https://docs.celeryq.dev/) with a Redis broker, same Redis instance in every environment (Dokploy-managed) — no per-environment queue emulation to keep in sync with production, unlike the ElasticMQ/SQS setup this replaced.
 - **Per-company delivery channel**: each project picks how its mail leaves the relay — `brevo` (default everywhere) or `smtp` (Mailpit sandbox / own host) — in the admin or via API. Step-by-step: [`docs/GUIA_FLUXO_E_IMPLEMENTACAO.md`](docs/GUIA_FLUXO_E_IMPLEMENTACAO.md).
 - **Email-only for now**: `Message.channel` defaults to `"email"` and is reserved for a future `in_app`/`push` channel, but no other delivery mechanism is built.
 - **Providers**: [Brevo](https://www.brevo.com/) (default) and plain SMTP, behind an `EmailProvider` protocol and resolved per project by `get_email_provider_for_project`. A new channel = one class + one enum member + one factory branch.
@@ -13,7 +13,7 @@ DevButter's company-wide, multi-tenant transactional email service. Apps publish
 
 The current-state flow and security review is documented in
 [`docs/butter-relay-fluxos.md`](docs/butter-relay-fluxos.md), with standalone Mermaid sources in
-[`docs/diagrams/`](docs/diagrams/). Everything runs on Coolify (Hostinger VPS), prod and staging
+[`docs/diagrams/`](docs/diagrams/). Everything runs on Dokploy (Hostinger VPS), prod and staging
 alike — there is no AWS in this deployment.
 
 ```mermaid
@@ -24,7 +24,7 @@ flowchart LR
         A3[Client site / GranAI / etc.]
     end
 
-    subgraph Coolify["Coolify (Hostinger VPS)"]
+    subgraph Dokploy["Dokploy (Hostinger VPS)"]
         Redis[("Redis\nCelery broker + result backend")]
         API["butter_relay API\n(FastAPI: /admin dashboard,\n/api/v1 endpoints; auth guard not wired)"]
         Worker["butter_relay worker\n(celery -A app.worker.celery_app worker,\nsame image, different CMD)"]
@@ -346,22 +346,30 @@ celery.send_task(
 
 `project_id` (string UUID) identifies the tenant — this is how the worker resolves which
 `Project`/`Template` to use without a second auth hop. Redis access itself is authorized at the
-network level (Coolify's internal network), not an API key.
+network level (Dokploy's internal `dokploy-network`), not an API key.
 
-## Deploying (Coolify)
+## Deploying (Dokploy)
 
-Everything runs on Coolify, prod and staging alike — see
-[`docker-compose.hostinger.yml`](docker-compose.hostinger.yml).
+Everything runs on Dokploy, prod and staging alike — a Dokploy **Compose** service pointing at
+[`docker-compose.dokploy.yml`](docker-compose.dokploy.yml), built from
+[`docker/Dockerfile.dokploy`](docker/Dockerfile.dokploy). Platform-wide steps live in
+`devbutter_app/infra/dokploy/README.md`. prod, preprod and staging share one Dokploy, so set
+`DEPLOY_ENV` on every environment: the api is published as `<DEPLOY_ENV>-relay-api` (e.g.
+`http://staging-relay-api:8000`). Never call the bare `relay-api` name, because it resolves to
+every environment at once.
 
-- **`relay-api`**: `uvicorn app.main:app` — the API/dashboard.
-- **`relay-worker`**: `celery -A app.worker.celery_app:celery_app worker --loglevel=info` — same image, different `command`.
-- **Postgres**: a Coolify-managed instance, via `DATABASE_HOST` / `PORT` / `USER` / `PASSWORD` / `NAME`.
-- **Redis**: a Coolify-managed instance, via `REDIS_URL`. Retries with exponential backoff
+- **`relay-api`**: build target `api`, `uvicorn app.main:app` — the API/dashboard. Runs
+  `alembic upgrade head` on boot (`docker-entrypoint.sh`); healthcheck `GET /health`.
+- **`relay-worker`**: build target `worker`, `celery -A app.worker.celery_app:celery_app worker` —
+  same image layers, `RUN_MIGRATIONS=false`, starts after the api is healthy, healthcheck
+  `celery inspect ping`.
+- **Postgres**: a Dokploy-managed database, via `DATABASE_HOST` / `PORT` / `USER` / `PASSWORD` / `NAME`.
+- **Redis**: a Dokploy-managed database, via `REDIS_URL`. Retries with exponential backoff
   (`autoretry_for`, `MAX_RETRIES` in `app/worker/tasks.py`) replace the SQS redrive-policy-to-DLQ
   this used to depend on — a failed task ends in `Message.status=failed` in Postgres rather than a
   separate dead-letter queue, so **/admin/messages** is where to look for stuck sends.
-- Secrets (`DATABASE_PASSWORD`, `BREVO_API_KEY`, `SESSION_SECRET`) are set as Coolify environment
-  variables on each service, not fetched from a secrets manager.
+- Secrets (`DATABASE_PASSWORD`, `BREVO_API_KEY`, `SESSION_SECRET`) are set in the Dokploy service's
+  Environment tab, not fetched from a secrets manager.
 
 ## Roadmap notes
 
