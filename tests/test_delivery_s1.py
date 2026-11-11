@@ -190,8 +190,8 @@ async def test_smtp_errors_are_classified(
     assert info.value.retryable is (not permanent)
 
 
-@pytest.mark.parametrize("environment", ["preprod", "production"])
-def test_plain_smtp_is_refused_outside_development_and_staging(
+@pytest.mark.parametrize("environment", ["production"])
+def test_plain_smtp_is_refused_outside_the_sandbox_environments(
     monkeypatch: pytest.MonkeyPatch, environment: str
 ) -> None:
     monkeypatch.setattr(settings, "environment", environment)
@@ -204,10 +204,11 @@ def test_plain_smtp_is_refused_outside_development_and_staging(
     assert provider._security is SmtpSecurity.STARTTLS
 
 
-def test_plain_smtp_is_allowed_in_staging_for_the_mailpit_sandbox(
-    monkeypatch: pytest.MonkeyPatch,
+@pytest.mark.parametrize("environment", ["staging", "preprod"])
+def test_plain_smtp_is_allowed_in_sandbox_environments_for_mailpit(
+    monkeypatch: pytest.MonkeyPatch, environment: str
 ) -> None:
-    monkeypatch.setattr(settings, "environment", "staging")
+    monkeypatch.setattr(settings, "environment", environment)
     provider = get_email_provider_for_project("smtp", {"smtp_host": "staging-mailpit"}, settings)
     assert isinstance(provider, SmtpEmailProvider)
     assert provider._security is SmtpSecurity.NONE
