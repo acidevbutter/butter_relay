@@ -190,7 +190,7 @@ async def test_smtp_errors_are_classified(
     assert info.value.retryable is (not permanent)
 
 
-@pytest.mark.parametrize("environment", ["production"])
+@pytest.mark.parametrize("environment", ["preprod", "production"])
 def test_plain_smtp_is_refused_outside_the_sandbox_environments(
     monkeypatch: pytest.MonkeyPatch, environment: str
 ) -> None:
@@ -204,7 +204,7 @@ def test_plain_smtp_is_refused_outside_the_sandbox_environments(
     assert provider._security is SmtpSecurity.STARTTLS
 
 
-@pytest.mark.parametrize("environment", ["staging", "preprod"])
+@pytest.mark.parametrize("environment", ["staging"])
 def test_plain_smtp_is_allowed_in_sandbox_environments_for_mailpit(
     monkeypatch: pytest.MonkeyPatch, environment: str
 ) -> None:
