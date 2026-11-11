@@ -14,6 +14,9 @@ import uuid
 from pathlib import Path
 
 from app.db.session import session_factory
+from app.email_types.repository import EmailTypeRepository
+from app.email_types.schemas import EmailTypeCreate
+from app.email_types.service import EmailTypeService
 from app.projects.models import Project
 from app.templates_.repository import TemplateRepository
 from app.templates_.schemas import TemplateCreate
@@ -78,7 +81,13 @@ async def seed(project_id: uuid.UUID) -> tuple[int, int]:
             raise SystemExit(f"Relay project {project_id} was not found")
         repository = TemplateRepository(session)
         service = TemplateService(repository)
+        email_types = EmailTypeService(EmailTypeRepository(session))
         for key, subject, title, message in TEMPLATES:
+            # sends are rejected (unknown_email_type) unless the type is declared too
+            await email_types.upsert(
+                project_id,
+                EmailTypeCreate(key=key, description="DevButter transactional (seed)"),
+            )
             if await repository.get_active(project_id, key) is not None:
                 skipped += 1
                 continue
