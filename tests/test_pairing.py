@@ -207,3 +207,135 @@ async def test_public_connect_link_goes_to_the_admin_host(client: AsyncClient, m
     assert (
         response.headers["location"] == "https://relay-admin.devbutter.tech/admin/connect?state=s"
     )
+
+
+# --- the site posts its data (plugin 0.6.0): the browser only carries the request id ---
+
+SITE = {
+    "return_url": "https://www.ediyporn.com/wp-admin/admin-post.php?action=ediy_relay_connect_callback",
+    "state": "state-abc-123",
+    "site_name": "EDIY",
+    "site_url": "https://www.ediyporn.com",
+    "sender_email": "no-reply@ediyporn.com",
+    "sender_name": "EDIY",
+}
+
+
+async def _post_request(client: AsyncClient, **overrides: str) -> str:
+    response = await client.post("/api/v1/connect/requests", json={**SITE, **overrides})
+    assert response.status_code == 201, response.text
+    assert response.json()["expires_in_seconds"] == 1800
+    return response.json()["request_id"]
+
+
+def _csrf(html: str) -> str:
+    return re.search(r'name="csrf" value="([^"]+)"', html).group(1)
+
+
+async def test_site_posts_its_data_and_gets_only_a_request_id(client: AsyncClient) -> None:
+    request_id = await _post_request(client)
+    assert request_id.startswith("brq_")
+    bad = await client.post(
+        "/api/v1/connect/requests", json={**SITE, "return_url": "https://evil.test/x"}
+    )
+    assert bad.status_code == 422
+    no_email = await client.post("/api/v1/connect/requests", json={**SITE, "sender_email": "x"})
+    assert no_email.status_code == 422
+
+
+async def test_consent_shows_the_posted_data_and_offers_a_new_project(admin_client) -> None:
+    request_id = await _post_request(admin_client)
+    page = await admin_client.get("/admin/connect", params={"request": request_id})
+    assert page.status_code == 200, page.text
+    assert "no-reply@ediyporn.com" in page.text and "https://www.ediyporn.com" in page.text
+    assert '<option value="new" selected>' in page.text
+    assert 'name="new_slug" maxlength="100" value="ediyporn"' in page.text
+    assert "ediy_relay_connect_callback" not in page.text  # return URL stays server-side
+
+
+async def test_approving_a_new_project_creates_it_from_the_site_data(
+    admin_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    from app.projects.repository import ProjectRepository
+
+    request_id = await _post_request(admin_client)
+    page = await admin_client.get("/admin/connect", params={"request": request_id})
+    done = await admin_client.post(
+        "/admin/connect",
+        data={
+            "csrf": _csrf(page.text), "request_id": request_id, "project_id": "new",
+            "new_name": "EDIY", "new_slug": "ediyporn",
+            "new_sender_email": "no-reply@ediyporn.com", "new_sender_name": "EDIY",
+            "label": "wordpress www.ediyporn.com",
+        },
+    )
+    assert done.status_code == 200, done.text
+    link = re.findall(r'<a class="link" href="([^"]+)"', done.text)[0].replace("&amp;", "&")
+    assert link.startswith(SITE["return_url"])
+    params = parse_qs(urlparse(link).query)
+    assert params["state"] == [SITE["state"]]
+
+    project = await ProjectRepository(db_session).get_by_slug("ediyporn")
+    assert project is not None and project.external
+    assert project.default_sender_email == "no-reply@ediyporn.com"
+
+    exchanged = await admin_client.post(
+        "/api/v1/connect/exchange", json={"code": params["code"][0]}
+    )
+    assert exchanged.json()["project_slug"] == "ediyporn"
+    assert exchanged.json()["scopes"] == ["send"]
+
+    again = await admin_client.get("/admin/connect", params={"request": request_id})
+    assert again.status_code == 404  # single use
+
+
+async def test_taken_slug_reshows_the_form_and_keeps_the_request(
+    admin_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    await create_project_and_api_key(db_session)  # slug crate-diggr-test-key
+    request_id = await _post_request(admin_client)
+    page = await admin_client.get("/admin/connect", params={"request": request_id})
+    clash = await admin_client.post(
+        "/admin/connect",
+        data={
+            "csrf": _csrf(page.text), "request_id": request_id, "project_id": "new",
+            "new_name": "EDIY", "new_slug": "crate-diggr-test-key",
+            "new_sender_email": "no-reply@ediyporn.com", "new_sender_name": "EDIY",
+        },
+    )
+    assert clash.status_code == 422
+    assert 'value="crate-diggr-test-key"' in clash.text and 'class="error"' in clash.text
+    still_open = await admin_client.get("/admin/connect", params={"request": request_id})
+    assert still_open.status_code == 200
+
+
+async def test_existing_project_for_the_site_is_preselected(
+    admin_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    from app.projects.repository import ProjectRepository
+    from app.projects.schemas import ProjectCreate
+    from app.projects.service import ProjectService
+
+    project = await ProjectService(ProjectRepository(db_session)).create(
+        ProjectCreate(
+            name="EDIY", slug="ediyporn", external=True,
+            default_sender_email="no-reply@ediyporn.com", default_sender_name="EDIY",
+        )
+    )
+    request_id = await _post_request(admin_client)
+    page = await admin_client.get("/admin/connect", params={"request": request_id})
+    assert f'<option value="{project.id}" selected>' in page.text
+
+
+async def test_expired_request_is_refused(
+    admin_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    from app.pairing.models import ConnectRequest
+
+    request_id = await _post_request(admin_client)
+    await db_session.execute(
+        update(ConnectRequest).values(expires_at=datetime.now(UTC) - timedelta(minutes=1))
+    )
+    await db_session.commit()
+    expired = await admin_client.get("/admin/connect", params={"request": request_id})
+    assert expired.status_code == 404
