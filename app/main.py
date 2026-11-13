@@ -9,6 +9,7 @@ from sqlalchemy import text
 from app.admin.router import router as admin_router
 from app.api_keys.router import router as api_keys_router
 from app.auth.router import router as auth_router
+from app.clients.router import router as clients_router
 from app.core.exceptions import register_exception_handlers
 from app.db.session import session_factory
 from app.email_types.router import router as email_types_router
@@ -68,6 +69,7 @@ app.include_router(api_keys_router)
 app.include_router(templates_router)
 app.include_router(messages_router)
 app.include_router(email_types_router)
+app.include_router(clients_router)
 app.include_router(auth_router)
 app.include_router(admin_router)
 

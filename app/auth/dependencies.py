@@ -1,15 +1,18 @@
 from __future__ import annotations
 
+import hashlib
+import hmac
 import uuid
 from typing import Annotated
 
-from fastapi import Depends, Request
+from fastapi import Depends, Header, Request
 
 from app.auth.models import AdminUser
 from app.auth.repository import AdminUserRepository
 from app.auth.service import AuthService
 from app.core.dependencies import DbSession
 from app.core.exceptions import SessionRequiredError, UnauthorizedError
+from app.settings.config import settings
 
 
 def get_auth_service(db: DbSession) -> AuthService:
@@ -59,3 +62,30 @@ async def get_current_admin_user_for_api(request: Request, service: AuthServiceD
 
 
 CurrentAdminUserApi = Annotated[AdminUser, Depends(get_current_admin_user_for_api)]
+
+
+def service_token_matches(token: str) -> bool:
+    expected = settings.relay_admin_token_hash.strip().lower()
+    if not expected:
+        return False
+    return hmac.compare_digest(hashlib.sha256(token.encode()).hexdigest(), expected)
+
+
+async def require_admin_api(
+    request: Request,
+    service: AuthServiceDep,
+    authorization: Annotated[str | None, Header()] = None,
+) -> str:
+    """Admin JSON routes (`/api/v1/admin/*`, DVB-310): a human admin session or the
+    service token (`Authorization: Bearer <token>`, checked against
+    RELAY_ADMIN_TOKEN_HASH) for automation. Only these routes accept the token; it
+    is not an API key, so messages/templates reject it. Returns who authenticated."""
+    if authorization is not None and authorization.startswith("Bearer "):
+        if service_token_matches(authorization.removeprefix("Bearer ").strip()):
+            return "service-token"
+        raise UnauthorizedError("Invalid service token")
+    await get_current_admin_user_for_api(request, service)
+    return "admin-session"
+
+
+AdminApiAccess = Annotated[str, Depends(require_admin_api)]

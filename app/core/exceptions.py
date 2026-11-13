@@ -53,9 +53,16 @@ class ValidationFailedError(Exception):
     """422. `code` is an optional stable, machine-readable reason for API clients
     (e.g. "unknown_email_type")."""
 
-    def __init__(self, detail: str = "Validation failed", code: str | None = None):
+    def __init__(
+        self,
+        detail: str = "Validation failed",
+        code: str | None = None,
+        errors: list[dict[str, Any]] | None = None,
+    ):
         self.detail = detail
         self.code = code
+        # Per-path problems (`{"loc": [...], "msg": "..."}`), e.g. for a client manifest.
+        self.errors = errors
 
 
 class PayloadTooLargeError(Exception):
@@ -103,6 +110,8 @@ async def handle_validation_failed(request: Request, exc: ValidationFailedError)
     content: dict[str, Any] = {"detail": exc.detail}
     if exc.code:
         content["code"] = exc.code
+    if exc.errors:
+        content["errors"] = exc.errors
     return JSONResponse(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, content=content)
 
 

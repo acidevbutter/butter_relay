@@ -43,6 +43,10 @@ class Settings(BaseSettings):
     # rejected tasks are cleared after this many days (DVB-208 / LGPD).
     message_body_retention_days: int = 30
 
+    # SHA-256 (hex) of the service token that may call /api/v1/admin/* without an admin
+    # session (DVB-310). Empty disables the token; it never reaches messages/templates.
+    relay_admin_token_hash: str = ""
+
     brevo_api_key: str = ""
     # Fernet keys (comma-separated, newest first) that encrypt per-project delivery
     # secrets at rest (DVB-306). Mandatory outside development.
