@@ -1,4 +1,5 @@
 from typing import Annotated
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Form, Request, Response
 from fastapi.responses import RedirectResponse
@@ -11,12 +12,17 @@ router = APIRouter(prefix="/admin", tags=["auth"])
 
 
 def _safe_next(value: str) -> str:
-    """Only the pairing consent page may be resumed after login (no open redirect)."""
-    return (
-        value
-        if value.startswith("/admin/connect") and "//" not in value and "\\" not in value
-        else ""
-    )
+    """Only the pairing consent page may be resumed after login (no open redirect).
+
+    Checks the parsed path, not the whole string: the query carries the plugin's absolute
+    `return_url`, which may arrive unencoded (`https://...`) and must survive the login.
+    """
+    if any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in value):
+        return ""
+    parts = urlsplit(value)
+    if parts.scheme or parts.netloc or parts.fragment or parts.path != "/admin/connect":
+        return ""
+    return value
 
 
 @router.get("/login", summary="Show the admin login form")

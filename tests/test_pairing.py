@@ -3,12 +3,14 @@
 import re
 import uuid
 from datetime import UTC, datetime, timedelta
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urlencode, urlparse
 
+import pytest
 from httpx import AsyncClient
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth.router import _safe_next
 from app.pairing.models import PairingCode
 from tests.conftest import create_project_and_api_key
 
@@ -58,6 +60,62 @@ async def test_consent_needs_a_session_and_login_resumes_it(
         follow_redirects=False,
     )
     assert evil.headers["location"] == "/admin"
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "/admin/connect",
+        "/admin/connect?x=1",
+        "/admin/connect?" + urlencode(QUERY),  # encoded return_url
+        f"/admin/connect?return_url={RETURN_URL}&state=s-123",  # raw return_url (#96)
+    ],
+)
+def test_safe_next_keeps_the_consent_page_whatever_its_query(value: str) -> None:
+    assert _safe_next(value) == value
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "",
+        "/admin",
+        "https://evil.test/",
+        "//evil.test/admin/connect",
+        "/\\evil.test",
+        "/admin/connectx",
+        "/admin/connect/../admin",
+        "/admin/connect#x",
+        "javascript:alert(1)",
+        "/admin/connect?x=1\r\nSet-Cookie: a=b",
+    ],
+)
+def test_safe_next_refuses_anything_but_the_consent_page(value: str) -> None:
+    assert _safe_next(value) == ""
+
+
+async def test_login_resumes_a_link_whose_return_url_is_not_encoded(
+    client: AsyncClient, db_session
+) -> None:
+    raw = f"return_url={RETURN_URL}&state=s-123&site=ediyporn.com"
+    response = await client.get(f"/admin/connect?{raw}", follow_redirects=False)
+    login = await client.get(response.headers["location"])
+    assert f'name="next" value="/admin/connect?{raw}"'.replace("&", "&amp;") in login.text
+
+    from app.auth.repository import AdminUserRepository
+    from app.auth.service import AuthService
+
+    await AuthService(AdminUserRepository(db_session)).register("a@devbutter.com", "supersecret")
+    back = await client.post(
+        "/admin/login",
+        data={
+            "email": "a@devbutter.com",
+            "password": "supersecret",
+            "next": f"/admin/connect?{raw}",
+        },
+        follow_redirects=False,
+    )
+    assert parse_qs(urlparse(back.headers["location"]).query)["state"] == ["s-123"]
 
 
 async def test_consent_rejects_return_urls_that_are_not_the_plugin_callback(admin_client) -> None:
