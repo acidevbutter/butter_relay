@@ -5,6 +5,7 @@
     <h2>Butter Relay admin</h2>
     {% if error %}<div class="error">{{ error }}</div>{% endif %}
     <form method="post" action="/admin/login">
+        <input type="hidden" name="next" value="{{ next or '' }}">
         <label>Email</label>
         <input type="email" name="email" required>
         <label>Password</label>
