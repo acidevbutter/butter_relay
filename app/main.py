@@ -13,6 +13,9 @@ from app.core.exceptions import register_exception_handlers
 from app.db.session import session_factory
 from app.email_types.router import router as email_types_router
 from app.messages.router import router as messages_router
+from app.pairing.consent_router import public_router as connect_entry_router
+from app.pairing.consent_router import router as connect_consent_router
+from app.pairing.router import router as pairing_router
 from app.projects.repository import ProjectRepository
 from app.projects.router import router as projects_router
 from app.projects.service import ProjectService
@@ -70,6 +73,9 @@ app.include_router(messages_router)
 app.include_router(email_types_router)
 app.include_router(auth_router)
 app.include_router(admin_router)
+app.include_router(pairing_router)
+app.include_router(connect_consent_router)
+app.include_router(connect_entry_router)
 
 
 @app.get("/health", tags=["meta"])
