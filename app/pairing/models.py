@@ -22,3 +22,24 @@ class PairingCode(Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ConnectRequest(Base):
+    """What a WordPress site sent (server to server, by POST) when asking to connect:
+    who it is, where to return and the sender it wants. The browser only carries the
+    request id; the consent page reads the rest from here. Only the id's hash is stored."""
+
+    __tablename__ = "connect_requests"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    site_host: Mapped[str] = mapped_column(String(255))
+    site_name: Mapped[str] = mapped_column(String(200))
+    site_url: Mapped[str] = mapped_column(String(500))
+    sender_email: Mapped[str] = mapped_column(String(320))
+    sender_name: Mapped[str] = mapped_column(String(200))
+    return_url: Mapped[str] = mapped_column(String(500))
+    state: Mapped[str] = mapped_column(String(200))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

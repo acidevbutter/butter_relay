@@ -1,20 +1,46 @@
 {% extends "base.html" %}
 {% block title %}Connect a site - Butter Relay{% endblock %}
 {% block content %}
-<div class="card" style="max-width: 520px; margin: 40px auto;">
+<div class="card" style="max-width: 560px; margin: 40px auto;">
     <h2>Connect a WordPress site</h2>
     <p>The site <strong>{{ site_host }}</strong> is asking to send e-mail through the relay.
-       Approving creates a new key with the <code>send</code> scope only, for the project you pick.
+       Approving creates a new key with the <code>send</code> scope only, for the project below.
        The key is handed to the site once and never shown here.</p>
+    {% if pending %}
+    <table>
+        <tr><th>Site</th><td>{{ pending.site_name }}</td></tr>
+        <tr><th>Address</th><td>{{ pending.site_url }}</td></tr>
+        <tr><th>Sender</th><td>{{ pending.sender_name }} &lt;{{ pending.sender_email }}&gt;</td></tr>
+    </table>
+    {% endif %}
     {% if error %}<div class="error">{{ error }}</div>{% endif %}
     <form method="post" action="/admin/connect">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        {% if request_id %}
+        <input type="hidden" name="request_id" value="{{ request_id }}">
+        {% else %}
         <input type="hidden" name="return_url" value="{{ return_url }}">
         <input type="hidden" name="state" value="{{ state }}">
-        <input type="hidden" name="csrf" value="{{ csrf }}">
+        {% endif %}
         <label>Project</label>
         <select name="project_id" required>
-            {% for p in projects %}<option value="{{ p.id }}">{{ p.name }} ({{ p.slug }})</option>{% endfor %}
+            {% if request_id %}<option value="new" {{ "selected" if choice == "new" }}>Create a new project for this site (below)</option>{% endif %}
+            {% for p in projects %}<option value="{{ p.id }}" {{ "selected" if choice == p.id|string }}>{{ p.name }} ({{ p.slug }})</option>{% endfor %}
         </select>
+        {% if request_id %}
+        <fieldset style="border: 1px solid var(--border); border-radius: 6px; margin: 4px 0 14px; padding: 12px;">
+            <legend class="muted">New project (filled in by the site; used only when "Create a new project" is picked)</legend>
+            <label>Name</label>
+            <input type="text" name="new_name" maxlength="200" value="{{ new.new_name }}">
+            <label>Slug (also names its queue <code>relay-&lt;slug&gt;</code>)</label>
+            <input type="text" name="new_slug" maxlength="100" value="{{ new.new_slug }}">
+            <label>Default sender email</label>
+            <input type="email" name="new_sender_email" value="{{ new.new_sender_email }}">
+            <label>Default sender name</label>
+            <input type="text" name="new_sender_name" maxlength="200" value="{{ new.new_sender_name }}">
+            <p class="muted">Created as an external project, delivering through Brevo (change later in Projects).</p>
+        </fieldset>
+        {% endif %}
         <label>Key label</label>
         <input type="text" name="label" maxlength="200" value="wordpress {{ site_host }}">
         <button type="submit">Approve and connect</button>
