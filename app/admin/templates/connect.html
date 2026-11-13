@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Connect a site - Butter Relay{% endblock %}
+{% block content %}
+<div class="card" style="max-width: 520px; margin: 40px auto;">
+    <h2>Connect a WordPress site</h2>
+    <p>The site <strong>{{ site_host }}</strong> is asking to send e-mail through the relay.
+       Approving creates a new key with the <code>send</code> scope only, for the project you pick.
+       The key is handed to the site once and never shown here.</p>
+    {% if error %}<div class="error">{{ error }}</div>{% endif %}
+    <form method="post" action="/admin/connect">
+        <input type="hidden" name="return_url" value="{{ return_url }}">
+        <input type="hidden" name="state" value="{{ state }}">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <label>Project</label>
+        <select name="project_id" required>
+            {% for p in projects %}<option value="{{ p.id }}">{{ p.name }} ({{ p.slug }})</option>{% endfor %}
+        </select>
+        <label>Key label</label>
+        <input type="text" name="label" maxlength="200" value="wordpress {{ site_host }}">
+        <button type="submit">Approve and connect</button>
+    </form>
+</div>
+{% endblock %}

@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}Connected - Butter Relay{% endblock %}
+{% block content %}
+<meta http-equiv="refresh" content="1;url={{ target }}">
+<div class="card" style="max-width: 520px; margin: 40px auto;">
+    <h2>Approved</h2>
+    <p>Sending you back to <strong>{{ site_host }}</strong> to finish the connection.</p>
+    <p><a class="link" href="{{ target }}">Continue to the site &rarr;</a></p>
+</div>
+{% endblock %}

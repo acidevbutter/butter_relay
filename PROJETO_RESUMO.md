@@ -194,9 +194,9 @@ Serviços do Compose dev: `mailpit` (1025/8025), `api` (8010→8000), `worker`. 
 `../infra/docker-compose.yml` na rede externa `devbutter_shared`, aliasado como `redis` para
 todo worker DevButter compartilhar a mesma instância.
 
-Arquivos Docker: `Dockerfile`, `Dockerfile.hostinger` (Coolify/Hostinger staging),
-`docker-compose.yml` (dev), `docker-compose.hostinger.yml` (staging: `relay-api` +
-`relay-worker` no mesmo Postgres `relay`).
+Arquivos Docker: `docker/Dockerfile.api` / `docker/Dockerfile.worker` (dev),
+`docker/Dockerfile.dokploy` (Dokploy, stages `api` e `worker`), `docker-compose.yml` (dev),
+`docker-compose.dokploy.yml` (staging/prod: `relay-api` + `relay-worker` no mesmo Postgres `relay`).
 
 ## Testes
 

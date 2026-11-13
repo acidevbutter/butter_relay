@@ -190,15 +190,31 @@ async def test_smtp_errors_are_classified(
     assert info.value.retryable is (not permanent)
 
 
-def test_plain_smtp_is_refused_outside_development(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(settings, "environment", "staging")
+@pytest.mark.parametrize("environment", ["preprod", "production"])
+def test_plain_smtp_is_refused_outside_the_sandbox_environments(
+    monkeypatch: pytest.MonkeyPatch, environment: str
+) -> None:
+    monkeypatch.setattr(settings, "environment", environment)
     with pytest.raises(EmailSendError, match="only allowed in development") as info:
         get_email_provider_for_project("smtp", {"smtp_security": "none"}, settings)
     assert info.value.permanent is True
-    # Outside development the default is STARTTLS.
+    # Outside development/staging the default is STARTTLS.
     provider = get_email_provider_for_project("smtp", {"smtp_host": "h"}, settings)
     assert isinstance(provider, SmtpEmailProvider)
     assert provider._security is SmtpSecurity.STARTTLS
+
+
+@pytest.mark.parametrize("environment", ["staging"])
+def test_plain_smtp_is_allowed_in_sandbox_environments_for_mailpit(
+    monkeypatch: pytest.MonkeyPatch, environment: str
+) -> None:
+    monkeypatch.setattr(settings, "environment", environment)
+    provider = get_email_provider_for_project("smtp", {"smtp_host": "staging-mailpit"}, settings)
+    assert isinstance(provider, SmtpEmailProvider)
+    assert provider._security is SmtpSecurity.NONE
+    explicit = get_email_provider_for_project("smtp", {"smtp_security": "none"}, settings)
+    assert isinstance(explicit, SmtpEmailProvider)
+    assert explicit._security is SmtpSecurity.NONE
 
 
 def test_factory_passes_smtp_credentials_from_config_and_secrets() -> None:

@@ -9,6 +9,7 @@ from app.api_keys import models as api_keys_models  # noqa: F401
 from app.auth import models as auth_models  # noqa: F401
 from app.email_types import models as email_types_models  # noqa: F401
 from app.messages import models as messages_models  # noqa: F401
+from app.pairing import models as pairing_models  # noqa: F401
 from app.projects import models as projects_models  # noqa: F401
 from app.rejected_messages import models as rejected_messages_models  # noqa: F401
 from app.templates_ import models as templates_models  # noqa: F401

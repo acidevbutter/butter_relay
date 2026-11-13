@@ -41,6 +41,8 @@ from app.settings.config import Settings
 logger = logging.getLogger(__name__)
 
 BREVO_SEND_URL = "https://api.brevo.com/v3/smtp/email"
+# Environments whose SMTP sandbox (mailpit on the private network) may skip TLS.
+PLAINTEXT_SMTP_ENVIRONMENTS = frozenset({"development", "staging"})
 DEFAULT_TIMEOUT_SECONDS = 10.0
 
 
@@ -316,14 +318,13 @@ def get_email_provider_for_project(
             )
         return BrevoEmailProvider(api_key=api_key, timeout=timeout)
     if provider == DeliveryProvider.SMTP.value:
-        default_security = (
-            SmtpSecurity.NONE if settings.environment == "development" else SmtpSecurity.STARTTLS
-        )
+        plaintext_ok = settings.environment in PLAINTEXT_SMTP_ENVIRONMENTS
+        default_security = SmtpSecurity.NONE if plaintext_ok else SmtpSecurity.STARTTLS
         security = SmtpSecurity(config.get("smtp_security") or default_security)
-        if security is SmtpSecurity.NONE and settings.environment != "development":
+        if security is SmtpSecurity.NONE and not plaintext_ok:
             raise EmailSendError(
-                "SMTP without TLS is only allowed in development; set smtp_security to "
-                "starttls or ssl",
+                "SMTP without TLS is only allowed in development and staging "
+                "(mailpit sandbox); set smtp_security to starttls or ssl",
                 permanent=True,
             )
         return SmtpEmailProvider(

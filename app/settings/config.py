@@ -39,6 +39,9 @@ class Settings(BaseSettings):
     # When set, /admin and /api/v1/admin respond only on these hosts (comma-separated);
     # other hosts only serve the public send API and /health (DVB-309).
     admin_allowed_hosts: str = ""
+    # Where the admin UI lives (e.g. https://relay-admin.devbutter.tech); the public
+    # /connect link sends the browser there. Empty = same host.
+    admin_base_url: str = ""
     # Payloads (rendered personal data) of finished messages and the recipient of
     # rejected tasks are cleared after this many days (DVB-208 / LGPD).
     message_body_retention_days: int = 30

@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import uuid
 from typing import Annotated
+from urllib.parse import quote
 
 from fastapi import Depends, Header, Request
 
@@ -62,6 +63,27 @@ async def get_current_admin_user_for_api(request: Request, service: AuthServiceD
 
 
 CurrentAdminUserApi = Annotated[AdminUser, Depends(get_current_admin_user_for_api)]
+
+
+async def get_current_admin_user_for_connect(
+    request: Request, service: AuthServiceDep, db: DbSession
+) -> AdminUser:
+    """Like `get_current_admin_user`, but the login redirect remembers the consent page
+    (query string included) so the staff member lands back on it after signing in."""
+    admin_user_id = request.session.get("admin_user_id")
+    back = "/admin/login?next=" + quote(
+        request.url.path + (f"?{request.url.query}" if request.url.query else ""), safe=""
+    )
+    if admin_user_id is None:
+        raise SessionRequiredError(back)
+    admin_user = await service.get(uuid.UUID(admin_user_id))
+    if admin_user is None or not admin_user.is_active:
+        raise SessionRequiredError(back)
+    db.expunge(admin_user)
+    return admin_user
+
+
+CurrentAdminUserForConnect = Annotated[AdminUser, Depends(get_current_admin_user_for_connect)]
 
 
 def service_token_matches(token: str) -> bool:

@@ -4,6 +4,15 @@ Registro retroativo baseado em todos os commits da branch `master`.
 
 ## Unreleased
 
+- Deploy migrado da Coolify para o Dokploy: os dois `Dockerfile.*.hostinger`
+  viraram um único `docker/Dockerfile.dokploy` com stages `api` e `worker`
+  (multi-stage, venv em `/opt/venv`, `tini` como PID 1, healthcheck `/health`
+  na API e `celery inspect ping` no worker). `docker-compose.dokploy.yml`
+  substitui o `docker-compose.hostinger.yml`: worker sobe só com a API
+  saudável, com `RUN_MIGRATIONS=false` (só a API roda `alembic upgrade head`)
+  e 60s de shutdown gracioso. Aliases na `dokploy-network` levam o prefixo
+  `<DEPLOY_ENV>-` (prod, preprod e staging no mesmo Dokploy).
+
 - S5, cadastro de clientes e manifesto JSON (DVB-310, API; Admin UI de importar/exportar na tela do projeto,
   com preview do diff):
   - Token de serviço: `RELAY_ADMIN_TOKEN_HASH` (SHA-256 do token) autoriza `/api/v1/admin/*`

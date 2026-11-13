@@ -1,0 +1,98 @@
+# butter_relay (e-mail relay API + Celery worker) -- Dokploy image.
+#
+# Dokploy "Application":  Build Type = Dockerfile, Docker File = docker/Dockerfile.dokploy,
+#                         Docker Context Path = .,
+#                         Docker Build Stage = api | worker
+# Dokploy "Compose":      docker-compose.dokploy.yml (same file, same targets).
+#
+# Shape shared by every DevButter Python service (keep them identical):
+#   builder  -- Poetry resolves main deps into /opt/venv; compilers live only here.
+#   runtime  -- python:3.12-slim + venv + code, non-root app (uid/gid 10001),
+#               WORKDIR /app, tini as PID 1 so SIGTERM from Swarm reaches the
+#               process and zombies are reaped, HEALTHCHECK on /health so
+#               Dokploy/Swarm only shifts traffic to a healthy container.
+# Migrations run in docker-entrypoint.sh (RUN_MIGRATIONS=false to skip).
+# All config arrives as env vars from Dokploy -- no .env is baked in
+# (see docker/Dockerfile.dokploy.dockerignore).
+
+ARG PYTHON_VERSION=3.12
+
+FROM python:${PYTHON_VERSION}-slim AS builder
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    POETRY_NO_INTERACTION=1 \
+    VIRTUAL_ENV=/opt/venv \
+    PATH=/opt/venv/bin:$PATH
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends build-essential libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Poetry stays in the system interpreter; deps go into the activated /opt/venv,
+# which is the only thing the runtime stage copies.
+RUN pip install poetry==1.8.3 \
+    && python -m venv /opt/venv
+
+WORKDIR /build
+COPY pyproject.toml poetry.lock ./
+RUN poetry install --only main --no-root --no-ansi \
+    && find /opt/venv -type d -name __pycache__ -prune -exec rm -rf {} +
+
+FROM python:${PYTHON_VERSION}-slim AS runtime
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    VIRTUAL_ENV=/opt/venv \
+    PATH=/opt/venv/bin:$PATH \
+    UVICORN_HOST=0.0.0.0 \
+    UVICORN_PORT=8000 \
+    FORWARDED_ALLOW_IPS=* \
+    RUN_MIGRATIONS=true
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends tini \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --system --gid 10001 app \
+    && useradd --system --uid 10001 --gid app --home-dir /app app
+
+WORKDIR /app
+
+COPY --from=builder /opt/venv /opt/venv
+COPY --chown=app:app app ./app
+COPY --chown=app:app scripts ./scripts
+COPY --chown=app:app alembic ./alembic
+COPY --chown=app:app alembic.ini ./
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
+USER app
+
+ENTRYPOINT ["tini", "--", "docker-entrypoint.sh"]
+
+# ---------------------------------------------------------------------------
+# Celery worker: Dokploy "Docker Build Stage" = worker.
+FROM runtime AS worker
+
+# The api container owns `alembic upgrade head`; the worker never races it.
+ENV RUN_MIGRATIONS=false
+
+# Pings only this node through the broker; a wedged worker goes unhealthy.
+HEALTHCHECK --interval=60s --timeout=30s --start-period=60s --retries=3 \
+    CMD celery -A app.worker.celery_app:celery_app inspect ping -d "celery@$HOSTNAME" --timeout 20 > /dev/null || exit 1
+
+CMD ["celery", "-A", "app.worker.celery_app:celery_app", "worker", "--loglevel=info"]
+
+# ---------------------------------------------------------------------------
+# HTTP API: Dokploy "Docker Build Stage" = api (also the default, last stage).
+FROM runtime AS api
+
+EXPOSE 8000
+
+# Liveness on 127.0.0.1 (localhost can resolve to ::1 while uvicorn binds IPv4).
+HEALTHCHECK --interval=15s --timeout=5s --start-period=40s --retries=5 \
+    CMD python -c "import os, urllib.request; urllib.request.urlopen('http://127.0.0.1:%s/health' % os.environ.get('UVICORN_PORT', '8000'), timeout=4)" || exit 1
+
+# Host/port come from UVICORN_HOST/UVICORN_PORT; WEB_CONCURRENCY sets workers.
+CMD ["uvicorn", "app.main:app"]

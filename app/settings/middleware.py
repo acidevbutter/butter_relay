@@ -127,6 +127,8 @@ _PUBLIC_PREFIXES = (
     "/api/v1/messages",
     "/api/v1/email-types",
     "/api/v1/templates",
+    "/api/v1/connect",
+    "/connect",
 )
 
 
