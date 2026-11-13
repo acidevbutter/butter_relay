@@ -4,6 +4,11 @@ Registro retroativo baseado em todos os commits da branch `master`.
 
 ## Unreleased
 
+- Removido o mypy: dependência de dev, seções `[tool.mypy]` (com o plugin
+  `pydantic.mypy`) do `pyproject.toml`, o passo `poetry run mypy .` do CI e os
+  comentários `# type: ignore[...]` que só existiam para ele. A qualidade no CI
+  fica com `ruff check` e `pytest`.
+
 - Deploy migrado da Coolify para o Dokploy: os dois `Dockerfile.*.hostinger`
   viraram um único `docker/Dockerfile.dokploy` com stages `api` e `worker`
   (multi-stage, venv em `/opt/venv`, `tini` como PID 1, healthcheck `/health`
