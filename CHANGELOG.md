@@ -4,6 +4,12 @@ Registro retroativo baseado em todos os commits da branch `master`.
 
 ## Unreleased
 
+- O login do admin volta à página de consentimento do pairing mesmo quando o
+  `return_url` chega sem encoding (`https://...`). Antes, o `//` na query fazia o
+  `next` ser descartado (#96). O `next` agora é validado pelo path (`urlsplit`):
+  só `/admin/connect`, sem scheme, host, fragmento ou caractere de controle. Isso
+  também fecha variantes como `/admin/connectx`, que o `startswith` aceitava.
+
 - Removido o mypy: dependência de dev, seções `[tool.mypy]` (com o plugin
   `pydantic.mypy`) do `pyproject.toml`, o passo `poetry run mypy .` do CI e os
   comentários `# type: ignore[...]` que só existiam para ele. A qualidade no CI
