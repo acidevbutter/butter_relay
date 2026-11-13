@@ -1,9 +1,11 @@
 """Admin dashboard controllers: form errors re-render readable pages, never JSON/500."""
 
+import json
 import uuid
 from unittest.mock import AsyncMock
 
 import pytest
+from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.email_provider import EmailSendError, ProviderResult
@@ -424,3 +426,34 @@ async def test_rejected_messages_page_lists_unparseable_tasks(admin_client, db_s
 async def test_rejected_messages_page_requires_login(client) -> None:
     response = await client.get("/admin/rejected-messages", follow_redirects=False)
     assert response.status_code in (302, 303, 401)
+
+
+async def test_manifest_import_preview_apply_and_export(admin_client: AsyncClient) -> None:
+    created = await admin_client.post(
+        "/api/v1/projects/",
+        json={"name": "Acme", "slug": "acme", "external": True,
+              "default_sender_email": "a@acme.example", "default_sender_name": "Acme"},
+    )
+    pid = created.json()["id"]
+    manifest = json.dumps({
+        "name": "Acme", "default_sender_email": "a@acme.example", "default_sender_name": "Acme",
+        "email_types": [{"key": "welcome"}],
+        "templates": [{"key": "welcome", "subject_template": "Hi", "html_template": "<p>Hi</p>"}],
+    })
+    url = f"/admin/projects/{pid}/manifest"
+
+    preview = await admin_client.post(url, data={"manifest_json": manifest, "action": "preview"})
+    assert preview.status_code == 200 and "nothing was saved" in preview.text
+    assert (await admin_client.get(f"/admin/projects/{pid}/manifest.json")).json()[
+        "email_types"] == []
+
+    applied = await admin_client.post(url, data={"manifest_json": manifest, "action": "apply"})
+    assert "Manifest applied." in applied.text
+    exported = await admin_client.get(f"/admin/projects/{pid}/manifest.json")
+    assert exported.json()["email_types"][0]["key"] == "welcome"
+    assert "attachment" in exported.headers["content-disposition"]
+
+    again = await admin_client.post(url, data={"manifest_json": manifest, "action": "apply"})
+    assert "nothing changed" in again.text
+    bad = await admin_client.post(url, data={"manifest_json": "{not json", "action": "apply"})
+    assert bad.status_code == 422

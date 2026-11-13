@@ -146,6 +146,29 @@
     </form>
 </div>
 
+<div class="card" id="manifest">
+    <h3>Client manifest</h3>
+    <p class="muted">Everything this client declares (settings, e-mail types, templates) as one JSON file. <a class="link" href="/admin/projects/{{ project.id }}/manifest.json">Export</a> never includes secrets. Importing is idempotent and atomic: preview the diff first, then apply.</p>
+    {% if manifest_result %}
+    <table>
+        <tr><th></th><th>created</th><th>updated</th><th>unchanged</th><th>pruned</th></tr>
+        <tr><td>Project</td><td colspan="4">{{ manifest_result.project }}{% if manifest_result.project_changes %}: {{ manifest_result.project_changes|join(", ") }}{% endif %}{% if manifest_result.secrets_set %} &middot; secrets set: {{ manifest_result.secrets_set|join(", ") }}{% endif %}</td></tr>
+        {% for label, o in (("E-mail types", manifest_result.email_types), ("Templates", manifest_result.templates)) %}
+        <tr><td>{{ label }}</td><td>{{ o.created|join(", ") }}</td><td>{{ o.updated|join(", ") }}</td><td>{{ o.unchanged|length }}</td><td>{{ o.pruned|join(", ") }}</td></tr>
+        {% endfor %}
+    </table>
+    {% endif %}
+    <form method="post" action="/admin/projects/{{ project.id }}/manifest" enctype="multipart/form-data">
+        <label>Manifest JSON</label>
+        <textarea name="manifest_json" rows="8" placeholder='{"name": "...", "default_sender_email": "...", "default_sender_name": "...", "email_types": [], "templates": []}'>{{ form.get('manifest_json', '') }}</textarea>
+        <label>&hellip;or upload a .json file (replaces the text above)</label>
+        <input type="file" name="manifest_file" accept=".json,application/json">
+        <label><input type="checkbox" name="prune" value="true" {% if form.get('prune') %}checked{% endif %}> Prune: deactivate e-mail types and templates missing from the manifest</label>
+        <button type="submit" name="action" value="preview" class="secondary">Preview diff</button>
+        <button type="submit" name="action" value="apply">Apply</button>
+    </form>
+</div>
+
 <div class="card" id="email-types">
     <h3>E-mail types</h3>
     <p class="muted">What this client sends. Clients discover them at <code>GET /api/v1/email-types</code>; an undeclared type is refused unless the setting above allows it. Template types render the active template with the same key.</p>
