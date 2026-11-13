@@ -40,6 +40,6 @@ async def purge_expired_bodies(retention_days: int | None = None) -> dict[str, i
     return result
 
 
-@celery_app.task(name=PURGE_TASK_NAME)  # type: ignore[untyped-decorator]  # celery ships no type information
+@celery_app.task(name=PURGE_TASK_NAME)
 def purge_message_bodies_task() -> dict[str, int]:
     return asyncio.run(purge_expired_bodies())

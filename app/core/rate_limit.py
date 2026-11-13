@@ -27,9 +27,7 @@ class RateLimitBackend(Protocol):
 
 class RedisBackend:
     async def hit(self, bucket: str, ttl_seconds: int) -> int:
-        client = aioredis.from_url(  # type: ignore[no-untyped-call]  # redis-py stub gap
-            settings.redis_url, socket_timeout=1, socket_connect_timeout=1
-        )
+        client = aioredis.from_url(settings.redis_url, socket_timeout=1, socket_connect_timeout=1)
         try:
             async with client.pipeline(transaction=True) as pipe:
                 pipe.incr(bucket)

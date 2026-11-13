@@ -69,6 +69,6 @@ def seed_all_queues(consumer: Any = None) -> None:
     logger.info("worker seeded consumers for queues: %s", sorted(queue_names))
 
 
-@worker_ready.connect  # type: ignore[untyped-decorator]  # celery ships no type information
+@worker_ready.connect
 def _on_worker_ready(sender: object = None, **kwargs: object) -> None:
     seed_all_queues(consumer=sender if hasattr(sender, "add_task_queue") else None)

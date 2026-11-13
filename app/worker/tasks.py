@@ -387,7 +387,7 @@ async def process_stored_message_isolated(*args: Any, **kwargs: Any) -> None:
         await engine.dispose()
 
 
-@celery_app.task(  # type: ignore[untyped-decorator]  # celery ships no type information
+@celery_app.task(
     bind=True,
     name=TASK_NAME,
     autoretry_for=(NotFoundError, EmailSendError, ValidationFailedError, ConflictError),
