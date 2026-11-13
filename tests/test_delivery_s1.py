@@ -213,6 +213,7 @@ def test_plain_smtp_is_allowed_in_sandbox_environments_for_mailpit(
     assert isinstance(provider, SmtpEmailProvider)
     assert provider._security is SmtpSecurity.NONE
     explicit = get_email_provider_for_project("smtp", {"smtp_security": "none"}, settings)
+    assert isinstance(explicit, SmtpEmailProvider)
     assert explicit._security is SmtpSecurity.NONE
 
 
