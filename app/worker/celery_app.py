@@ -64,7 +64,7 @@ celery_app.conf.update(
 )
 
 
-@celery_setup_logging.connect  # type: ignore[untyped-decorator]  # celery ships no type information
+@celery_setup_logging.connect
 def _configure_worker_logging(**kwargs: Any) -> None:
     """Fires only inside the worker process (never when a producer merely imports this
     module). Connecting a receiver to Celery's `setup_logging` signal makes Celery skip

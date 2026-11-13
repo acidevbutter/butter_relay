@@ -128,7 +128,7 @@ async def test_non_object_payload_is_rejected(db_session: AsyncSession) -> None:
     with pytest.raises(MalformedMessageError, match="payload must be an object"):
         await process_message(
             "task-list", str(project_id), "welcome_email", "a@example.com",
-            ["not", "a", "dict"],  # type: ignore[arg-type]
+            ["not", "a", "dict"],
         )
 
 

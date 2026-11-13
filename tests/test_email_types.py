@@ -93,9 +93,9 @@ async def test_upload_creates_once_and_dedupes_by_content(
     again = await _upload(client, key, b"<p>Oi {{ name }}</p>")
     changed = await _upload(client, key, b"<p>Ola {{ name }}</p>")
 
-    assert first.status_code == 201 and first.json()["version"] == 1  # type: ignore[attr-defined]
-    assert again.status_code == 200 and again.json()["version"] == 1  # type: ignore[attr-defined]
-    assert changed.status_code == 201 and changed.json()["version"] == 2  # type: ignore[attr-defined]
+    assert first.status_code == 201 and first.json()["version"] == 1
+    assert again.status_code == 200 and again.json()["version"] == 1
+    assert changed.status_code == 201 and changed.json()["version"] == 2
     templates = await TemplateRepository(db_session).list_for_project(uuid.UUID(project_id))
     assert [(t.version, t.is_active) for t in sorted(templates, key=lambda t: t.version)] == [
         (1, False), (2, True),
@@ -116,8 +116,8 @@ async def test_broken_upload_is_rejected_without_touching_the_active_version(
         data={"key": "welcome", "subject_template": "s"},
     )
 
-    assert broken.status_code == 422  # type: ignore[attr-defined]
-    assert too_big.status_code == 422 and too_big.json()["code"] == "file_too_large"  # type: ignore[attr-defined]
+    assert broken.status_code == 422
+    assert too_big.status_code == 422 and too_big.json()["code"] == "file_too_large"
     assert not_html.status_code == 422 and not_html.json()["code"] == "invalid_file"
     active = await TemplateRepository(db_session).get_active(uuid.UUID(project_id), "welcome")
     assert active is not None and active.version == 1
@@ -130,7 +130,7 @@ async def test_upload_without_activation_keeps_current_version(
     await _upload(client, key, b"<p>v1 {{ name }}</p>")
     draft = await _upload(client, key, b"<p>v2 {{ name }}</p>", activate="false")
 
-    assert draft.json()["is_active"] is False  # type: ignore[attr-defined]
+    assert draft.json()["is_active"] is False
     active = await TemplateRepository(db_session).get_active(uuid.UUID(project_id), "welcome")
     assert active is not None and active.version == 1
 

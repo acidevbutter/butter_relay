@@ -42,7 +42,7 @@ def _prod(**overrides: object) -> Settings:
         "debug": False,
     }
     values.update(overrides)
-    return Settings(**values)  # type: ignore[arg-type]
+    return Settings(**values)
 
 
 def test_non_dev_allows_empty_shared_brevo_key() -> None:

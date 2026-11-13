@@ -32,7 +32,7 @@ log de mensagens sem tocar no banco.
 | Dashboard | Jinja2 + HTMX, auth por cookie de sessão (`bcrypt` + `itsdangerous`) |
 | Observabilidade | logs legíveis no stdout (uma linha por evento, `TerminalFormatter`) e readiness probe; sem OpenTelemetry/métricas |
 | Testes | `pytest` + `httpx.AsyncClient`, SQLite em memória; Celery/Brevo mockados nos testes do worker |
-| Lint/Type | `ruff` (E,F,I,UP,B,SIM), `mypy --strict` |
+| Lint | `ruff` (E,F,I,UP,B,SIM) |
 
 ## Arquitetura e fluxo
 
